@@ -79,6 +79,20 @@ class RuntimeCases(unittest.TestCase):
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_blocks=0)), \
              patch.object(Path, 'iterdir', return_value=[]), patch.object(g, 'allocated', return_value=0):
             budget.check(True)
+    def test_nested_poll_deadline(self):
+        budget = g.Budget.__new__(g.Budget)
+        budget.state, budget.store, budget.base, budget.last = Path('/state'), Path('/store'), {'bytes': 0}, 0
+        clock, timeouts = [10], []
+        def scan(*args, **kwargs):
+            self.assertLessEqual(kwargs['timeout'], 1)
+            timeouts.append(kwargs['timeout'])
+            clock[0] += 2
+            return '0 path'
+        with patch.object(g.time, 'monotonic', side_effect=lambda: clock[0]), \
+             patch.object(g.subprocess, 'check_output', side_effect=scan):
+            with self.assertRaisesRegex(RuntimeError, 'readiness deadline'):
+                budget.check(True, deadline=11)
+        self.assertEqual(timeouts, [1])
     def test_capacity(self):
         for cpu, ram in ((7, 48), (8, 47), (0, 0)):
             with self.assertRaises(RuntimeError):

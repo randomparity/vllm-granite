@@ -55,9 +55,9 @@ def run(*args, deadline=None):
         ERROR_LOG.write_bytes((previous + f'\n{operation}: {detail}'.encode())[-65536:])
         raise RuntimeError(f'{operation} failed; inspect {ERROR_LOG}') from error
 
-def allocated(path, store=False):
+def allocated(path, store=False, deadline=None):
     prefix = ['podman', 'unshare'] if store else []
-    return int(run(*prefix, 'du', '-sx', '-B1', str(path)).split()[0])
+    return int(run(*prefix, 'du', '-sx', '-B1', str(path), deadline=deadline).split()[0])
 
 def capacity(cpu, ram):
     require(cpu >= 8 and ram >= 48 * GIB, 'preflight: need 8 CPUs and 48 GiB available RAM')
@@ -118,14 +118,15 @@ class Budget:
                                           'bytes': allocated(self.store, True)}))
         self.base = json.loads(record.read_text())
         require(self.base['store'] == str(self.store), 'state: Podman store changed; inspect state')
-    def check(self, force=False):
+    def check(self, force=False, deadline=None):
         if not force and time.monotonic() - self.last < 5:
             return
         self.last = time.monotonic()
-        buckets = [max(0, allocated(self.store, True) - self.base['bytes'])
-                   + allocated(self.state / 'pull-tmp'), allocated(self.state / 'model'),
-                   allocated(self.state / 'cache'), 0]
-        buckets[3] = self.state.stat().st_blocks * 512 + sum(allocated(path)
+        buckets = [max(0, allocated(self.store, True, deadline) - self.base['bytes'])
+                   + allocated(self.state / 'pull-tmp', deadline=deadline),
+                   allocated(self.state / 'model', deadline=deadline),
+                   allocated(self.state / 'cache', deadline=deadline), 0]
+        buckets[3] = self.state.stat().st_blocks * 512 + sum(allocated(path, deadline=deadline)
             for path in self.state.iterdir() if path.name not in {'model', 'cache', 'pull-tmp'})
         for size, limit in zip(buckets, (32, 20, 8, 4)):
             require(size <= limit * GIB, f'disk: {limit} GiB bucket exceeded; inspect private state')
@@ -176,11 +177,11 @@ def acquire(state, budget):
     budget.check(True)
     print('Acquisition verified; model and image identities match frozen pins.')
 
-def gpu_state(gpu):
+def gpu_state(gpu, deadline=None):
     require(re.fullmatch(r'GPU-[0-9a-fA-F-]{36}', gpu), 'preflight: require exact GPU UUID')
     fields = 'uuid,name,memory.total,memory.free,memory.used'
     rows = [x.split(', ') for x in run('nvidia-smi', f'--query-gpu={fields}',
-                                     '--format=csv,noheader,nounits').splitlines()]
+                                     '--format=csv,noheader,nounits', deadline=deadline).splitlines()]
     matches = [row for row in rows if row[0] == gpu]
     require(len(matches) == 1 and matches[0][1] == 'NVIDIA RTX A6000',
             'preflight: selected GPU must be the A6000')
@@ -200,9 +201,9 @@ def desktop_baseline(path, gpu):
             and entry['max_mib'] == 38, 'baseline: invalid approved identity or 38 MiB bound')
     return entry
 
-def gpu_processes(gpu, baseline=None, group=None):
+def gpu_processes(gpu, baseline=None, group=None, deadline=None):
     rows = run('nvidia-smi', '-i', gpu, '--query-compute-apps=pid,used_gpu_memory',
-               '--format=csv,noheader,nounits').splitlines()
+               '--format=csv,noheader,nounits', deadline=deadline).splitlines()
     for row in rows:
         pid, usage = row.split(', ')
         process = Path('/proc') / str(int(pid))
@@ -336,29 +337,30 @@ def observe(name, gpu, deadline):
     value['GraniteProof'] = {'devices': nodes, 'status': status, 'label': label, 'cgroup': group}
     return value
 
-def reachable(host, port):
+def reachable(host, port, deadline=None):
+    timeout = min(1, remaining(deadline)) if deadline else 1
     try:
-        with socket.create_connection((host, port), timeout=1):
+        with socket.create_connection((host, port), timeout=timeout):
             return True
     except OSError:
         return False
 
-def network_check(name, network):
-    net = json.loads(run('podman', 'network', 'inspect', network))[0]
+def network_check(name, network, deadline):
+    net = json.loads(run('podman', 'network', 'inspect', network, deadline=deadline))[0]
     require(net['internal'] and not net['dns_enabled'] and not net['ipv6_enabled']
             and all('gateway' not in item for item in net['subnets']),
             'runtime: network must be internal, IPv4-only, without DNS or gateway')
-    addresses = json.loads(run('ip', '-j', 'address', 'show'))
+    addresses = json.loads(run('ip', '-j', 'address', 'show', deadline=deadline))
     hosts = [a['local'] for link in addresses for a in link['addr_info']
              if a['family'] == 'inet' and a['scope'] != 'host']
     require(hosts, 'diagnostic: need non-loopback host address to test publication')
-    require(all(not reachable(host, 8000) for host in hosts), 'runtime: non-loopback ingress')
+    require(all(not reachable(host, 8000, deadline) for host in hosts), 'runtime: non-loopback ingress')
     with socket.socket() as sentinel:
         sentinel.bind(('0.0.0.0', 0))
         sentinel.listen()
         port = sentinel.getsockname()[1]
         targets = [('1.1.1.1', 443), ('169.254.1.2', port)] + [(x, port) for x in hosts]
-        run('podman', 'exec', name, 'python3', '-c', NETWORK, json.dumps(targets))
+        run('podman', 'exec', name, 'python3', '-c', NETWORK, json.dumps(targets), deadline=deadline)
 
 def exists(name, network=False):
     args = ['network', 'ls', '-q'] if network else ['ps', '-a', '--format={{.Names}}']
@@ -419,26 +421,28 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
         (state / 'logs' / 'inspect.json').write_text(json.dumps(observation))
         ready = False
         while time.monotonic() - start < 3600:
-            budget.check()
-            require(gpu_state(gpu)[2] <= 40 * GIB, 'runtime: observed GPU memory exceeds 40 GiB')
+            active_deadline = deadline if not ready else start + 3600
+            budget.check(deadline=active_deadline)
+            require(gpu_state(gpu, active_deadline)[2] <= 40 * GIB,
+                    'runtime: observed GPU memory exceeds 40 GiB')
             group = observation['GraniteProof']['cgroup']
-            gpu_processes(gpu, baseline, group)
+            gpu_processes(gpu, baseline, group, active_deadline)
             events = Path('/sys/fs/cgroup') / group.lstrip('/') / 'memory.events'
             require(dict(line.split() for line in events.read_text().splitlines())['oom_kill'] == '0',
                     'runtime: cgroup OOM; stop failed trial')
-            current = json.loads(run('podman', 'inspect', name))[0]['State']
+            current = json.loads(run('podman', 'inspect', name, deadline=active_deadline))[0]['State']
             require(current['Running'] and not current['OOMKilled'], 'runtime: server stopped/OOM')
             if not ready:
                 remaining(deadline)
                 try:
                     with HTTP.open('http://127.0.0.1:8000/' + ('' if diagnostic else 'health'),
-                                   timeout=1) as response:
+                                   timeout=min(1, remaining(deadline))) as response:
                         ready = response.status == 200
                 except OSError:
                     pass
                 remaining(deadline)
                 if ready:
-                    network_check(name, network)
+                    network_check(name, network, deadline)
                     remaining(deadline)
                     print('Diagnostic passed.' if diagnostic else 'Ready: http://127.0.0.1:8000')
             if diagnostic and ready:
