@@ -352,3 +352,19 @@ class RecoveryEvidenceCases(unittest.TestCase):
             self.assertEqual(len(result['private_runtime']), 2)
             self.assertEqual(result['private_runtime'][0]['observation']['Name'], 'failed-start')
             self.assertEqual(result['private_runtime'][1]['observation']['Name'], 'recovery')
+
+class CancellationEvidenceCases(unittest.TestCase):
+    def test_following_request_failure_cannot_leave_cancellation_passed(self):
+        from types import SimpleNamespace
+        result = {'scenarios': {'W-cancel': {'status': 'not-run'}}}
+        trial = b.Trial(None, None, None, None, {}, result, b.time.monotonic() + 2)
+        def request(*args, **kwargs):
+            if kwargs.get('hold'):
+                trial.held = SimpleNamespace(close=lambda: None)
+                return {'finish_reason': None}
+            raise RuntimeError('following F-short failed')
+        with patch.object(trial, 'one', side_effect=request), \
+             patch.object(trial, 'gauges', side_effect=[1, 0]):
+            with self.assertRaisesRegex(RuntimeError, 'following F-short failed'):
+                trial.cancel()
+        self.assertNotEqual(result['scenarios']['W-cancel']['status'], 'passed')

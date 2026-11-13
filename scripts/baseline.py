@@ -411,11 +411,12 @@ class Trial:
                 seconds(end)
                 self.sample(end)
                 time.sleep(.1)
+            release_s = time.monotonic() - start
+            self.one()
             self.result['scenarios']['W-cancel'] = {
                 'status': 'passed', 'before_disconnect_outstanding': outstanding,
-                'after_disconnect_outstanding': 0, 'slot_release_s': time.monotonic() - start,
+                'after_disconnect_outstanding': 0, 'slot_release_s': release_s,
                 'proof': 'server gauges running+waiting, then successful F-short'}
-            self.one()
         finally:
             if self.held:
                 self.held.close()
