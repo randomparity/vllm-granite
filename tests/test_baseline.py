@@ -265,3 +265,22 @@ class SlowDripCases(unittest.TestCase):
                 client.close()
                 server.join(timeout=2)
             self.assertFalse(server.is_alive())
+
+class AllocationResponseCases(unittest.TestCase):
+    def test_http_allocation_error_is_classified_and_retained_privately(self):
+        from types import SimpleNamespace
+        for message, expected in (('CUDA out of memory', 'gpu-allocation'),
+                                  ('No space left on device', 'disk-allocation'),
+                                  ('unrelated server error', None)):
+            body = json.dumps({'error': {'message': message, 'type': 'InternalServerError'}}).encode()
+            response = SimpleNamespace(status=500, read=lambda size: body)
+            client = b.Client(b.time.monotonic() + 2)
+            try:
+                with patch.object(client, 'open', return_value=response):
+                    with self.assertRaises(RuntimeError) as caught:
+                        client.chat(b'{}')
+                self.assertEqual(getattr(caught.exception, 'resource_class', None), expected)
+                self.assertEqual(getattr(caught.exception, 'body', None), body)
+                self.assertNotIn(message, str(caught.exception))
+            finally:
+                client.close()

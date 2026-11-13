@@ -203,6 +203,24 @@ def parse_stream(source, check, first_only=False):
             finished = choice['finish_reason']
 
 
+class ResponseFailure(RuntimeError):
+    def __init__(self, status, body):
+        super().__init__(f'request: unexpected HTTP {status}; inspect private response evidence')
+        self.body = body
+        self.resource_class = None
+        try:
+            error = json.loads(body).get('error', {})
+            text = (str(error.get('message', '')) + ' ' + str(error.get('type', ''))).lower()
+        except (ValueError, AttributeError):
+            return
+        for pattern, category in ((r'cuda.*out of memory', 'gpu-allocation'),
+                (r'outofmemoryerror|cannot allocate memory', 'memory-allocation'),
+                (r'no space left on device', 'disk-allocation')):
+            if re.search(pattern, text):
+                self.resource_class = category
+                break
+
+
 class Client:
     def __init__(self, deadline):
         self.deadline = deadline
@@ -250,7 +268,11 @@ class Client:
             self.check()
             g.require(len(data) <= 65536, 'request: error body exceeds bound')
             return {'status': response.status, 'error_class': 'expected-client-error'}
-        g.require(response.status == 200, 'request: unexpected HTTP status; inspect private logs')
+        if response.status != 200:
+            body = response.read(65537)
+            self.check()
+            g.require(len(body) <= 65536, 'response: error body exceeds bound')
+            raise ResponseFailure(response.status, body)
         if stream:
             g.require(response.getheader('Content-Type', '').startswith('text/event-stream'),
                       'stream: wrong media type')
@@ -514,7 +536,7 @@ def public_result(result, fixtures):
     fields = ('status', 'commit', 'profile', 'gpu_alias', 'requests', 'resource_peaks',
               'startups', 'cleanups', 'scenarios', 'limits', 'configuration',
               'cold_definition', 'throughput_definition', 'default_profile_sha256',
-              'versions', 'failure_class', 'elapsed_s')
+              'versions', 'failure_class', 'resource_error_class', 'elapsed_s')
     value = {key: result[key] for key in fields if key in result}
     fields = ('image', 'model', 'revision', 'template_sha256', 'add_generation_prompt', 'order')
     value['fixture_manifest'] = {key: fixtures[key] for key in fields if key in fixtures}
@@ -607,7 +629,11 @@ def run_trial(args):
             result['failure_class'] = type(error).__name__
             # Exception text can contain paths, identities or untrusted server data; private only.
             (folder / 'failure.txt').write_text(str(error))
-            resource_error = (isinstance(error, OSError)
+            if isinstance(error, ResponseFailure):
+                (folder / 'response-error.bin').write_bytes(error.body)
+                result['resource_error_class'] = error.resource_class
+            resource_error = (isinstance(error, ResponseFailure) and error.resource_class is not None
+                or isinstance(error, OSError)
                 and error.errno in (errno.ENOMEM, errno.ENOSPC)
                 or any(word in str(error) for word in ('cgroup OOM', 'server stopped/OOM',
                                                        'GPU memory exceeds', 'disk:')))
