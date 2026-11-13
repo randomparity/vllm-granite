@@ -35,8 +35,12 @@ State is UID-owned/mode-0700/non-symlink/exclusively locked; reject existing sym
 model and persistent cache enter the container. Raw evidence stays private; publish sanitized results.
 Require 80 GiB free per affected filesystem before acquisition; monitor store growth/pull scratch
 32 GiB, model 20, cache 8, logs/state 4, total 64. Charge shared-store growth conservatively;
-no concurrent shared-store mutation or pruning. Disk scans detect/stop breaches, with overshoot;
-they are not quotas. Preserve cache for #5. Retain at most 64 KiB command-refusal stderr privately,
+no concurrent shared-store mutation or pruning. Other disk scans detect/stop breaches with
+overshoot. ADR0002 bounds cache using a root-owned preallocated exact8GiB ext4 image, manually
+loop-mounted nosuid,nodev at cache; metadata reduces usable payload. Require native ext4-root/loop
+identity, sysfs exact device size, statvfs capacity, ownership and private-label mount checks.
+Charge full8GiB once regardless of visible files; unlinked allocations remain filesystem-bounded.
+Preserve cache for #5. Retain at most 64 KiB command-refusal stderr privately,
 identify its path in actionable errors, and preserve the primary failure when cleanup also fails.
 
 ## Runtime boundaries (C2–C4)

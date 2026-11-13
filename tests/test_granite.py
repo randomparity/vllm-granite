@@ -111,9 +111,43 @@ class RuntimeCases(unittest.TestCase):
         with patch.object(http.server, 'test', side_effect=serve), \
              patch.object(g.os, 'chdir'), patch.object(g.signal, 'signal'):
             exec(g.DIAGNOSTIC_SERVER)
+    def test_cache_mount(self):
+        entry = {'target': '/state/cache', 'source': '/dev/loop7', 'fstype': 'ext4',
+                 'fsroot': '/', 'options': 'rw,nosuid,nodev,relatime,seclabel'}
+        directory = SimpleNamespace(st_mode=0o40700, st_uid=g.os.getuid(), st_dev=1799)
+        device = SimpleNamespace(st_mode=0o60600, st_rdev=1799)
+        with patch.object(g, 'run', side_effect=lambda *a, **k: g.json.dumps({'filesystems': [entry]})), \
+             patch.object(Path, 'is_symlink', return_value=False), \
+             patch.object(Path, 'resolve', side_effect=lambda: Path('/state/cache')), \
+             patch.object(Path, 'stat', side_effect=lambda: directory), \
+             patch.object(g.os, 'statvfs', return_value=SimpleNamespace(f_blocks=2000000, f_frsize=4096)), \
+             patch.object(Path, 'read_text', return_value='16777216'):
+            with patch.object(g.os, 'stat', return_value=device):
+                self.assertEqual(g.cache_bytes(Path('/state/cache')), 8 * g.GIB)
+                for key, bad in (('source', '/dev/sda'), ('fstype', 'tmpfs'), ('fsroot', '/subdir'),
+                                 ('target', '/state'), ('options', 'rw,nodev'),
+                                 ('options', 'rw,nodev,nosuid,context=unconfined')):
+                    previous = entry[key]
+                    entry[key] = bad
+                    with self.assertRaises(RuntimeError):
+                        g.cache_bytes(Path('/state/cache'))
+                    entry[key] = previous
+                with patch.object(Path, 'read_text', return_value='33554432'):
+                    with self.assertRaises(RuntimeError):
+                        g.cache_bytes(Path('/state/cache'))
+    def test_unlinked_cache_accounting(self):
+        budget = g.Budget.__new__(g.Budget)
+        budget.state, budget.store, budget.base, budget.last = Path('/state'), Path('/store'), {'bytes': 0}, 0
+        budget.runtime = True
+        with patch.object(Path, 'stat', return_value=SimpleNamespace(st_blocks=0)), \
+             patch.object(Path, 'iterdir', return_value=[]), patch.object(g, 'allocated', return_value=0), \
+             patch.object(g, 'cache_bytes', return_value=8 * g.GIB) as bounded:
+            budget.check(True)
+            bounded.assert_called_once_with(Path('/state/cache'), None)
     def test_budget(self):
         budget = g.Budget.__new__(g.Budget)
         budget.state, budget.store, budget.base, budget.last = Path('/state'), Path('/store'), {'bytes': 0}, 0
+        budget.runtime = False
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_blocks=0)), \
              patch.object(Path, 'iterdir', return_value=[]), \
              patch.object(g, 'allocated', side_effect=[33 * g.GIB, 0, 0, 0]):
@@ -125,6 +159,7 @@ class RuntimeCases(unittest.TestCase):
     def test_nested_poll_deadline(self):
         budget = g.Budget.__new__(g.Budget)
         budget.state, budget.store, budget.base, budget.last = Path('/state'), Path('/store'), {'bytes': 0}, 0
+        budget.runtime = False
         clock, timeouts = [10], []
         def scan(*args, **kwargs):
             self.assertLessEqual(kwargs['timeout'], 1)

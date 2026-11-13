@@ -128,6 +128,58 @@ export GRANITE_STATE="$HOME/.local/share/granite-4"
 nvidia-smi --query-gpu=uuid,name --format=csv,noheader
 export GRANITE_GPU='<A6000-UUID>'
 python3 scripts/granite.py acquire --state "$GRANITE_STATE"
+```
+
+Before check/serve, provision the persistent cache below. Acquisition creates the private state
+and empty cache directory; serving refuses an ordinary directory or an incorrect mount.
+
+### Provision the bounded cache
+
+[ADR0002](adr/0002-bounded-persistent-cache.md) uses an exact 8 GiB preallocated ext4 image.
+Filesystem metadata reduces usable payload below 8 GiB. This needs host-admin authorization;
+containers remain rootless. Installed prerequisites: e2fsprogs, util-linux and Btrfs tools;
+the observed host has versions 1.47.3, 2.41.5 and 7.1 respectively. No quota enable or startup
+service is required. Reserve 8 GiB on the backing filesystem in addition to acquisition space.
+
+Stop all cache writers first. Verify state/cache are owned mode-0700 directories without
+symlinks, cache is empty and unmounted, and `/var/lib/granite-cache` does not exist. Refuse
+existing content rather than hiding or deleting it. Use the same operator shell and state:
+
+```bash
+GRANITE_UID=$(id -u)
+GRANITE_GID=$(id -g)
+sudo install -d -m 0700 /var/lib/granite-cache
+sudo touch /var/lib/granite-cache/cache.ext4
+sudo chmod 0600 /var/lib/granite-cache/cache.ext4
+sudo chattr +C /var/lib/granite-cache/cache.ext4
+sudo fallocate -l 8589934592 /var/lib/granite-cache/cache.ext4
+sudo mkfs.ext4 -m 0 -E nodiscard,lazy_itable_init=0,lazy_journal_init=0 /var/lib/granite-cache/cache.ext4
+sudo mount -t ext4 -o loop,nosuid,nodev /var/lib/granite-cache/cache.ext4 "$GRANITE_STATE/cache"
+sudo rmdir "$GRANITE_STATE/cache/lost+found"
+sudo chown "$GRANITE_UID:$GRANITE_GID" "$GRANITE_STATE/cache"
+chmod 700 "$GRANITE_STATE/cache"
+findmnt --json --mountpoint "$GRANITE_STATE/cache" -o TARGET,SOURCE,FSTYPE,FSROOT,OPTIONS
+sudo stat -c '%s %b %u %g %a' /var/lib/granite-cache/cache.ext4
+```
+
+Require image size 8589934592, allocated blocks times 512 at most that size, root ownership
+and mode 600. Set NOCOW before allocation on this Btrfs host; `nodiscard` preserves allocation.
+Do not snapshot/reflink this backing image while mounted or resize it. Its directory/file
+are outside state/store and inaccessible to the worker. Ext4 native labels permit Podman's
+private `:Z` relabel; no fixed mount context or policy grant is added. Executable cache mappings
+remain permitted for compilation; `nosuid,nodev`, NNP and capability removal remain required.
+
+After reboot, manually repeat only the mount command against the existing image; never reformat
+it. The launcher checks the exact ext4 root mount, loop device identity and 8 GiB device size,
+filesystem capacity, ownership/mode and mount options using unprivileged native observations.
+It charges the full backing allocation once, including invisible open-unlinked allocations.
+
+Rollback: stop the launcher and all cache writers, then `sudo umount "$GRANITE_STATE/cache"`
+without lazy/forced options. Verify the image no longer appears in `sudo losetup --list --json`.
+Retain the image for reuse; deleting it requires explicit data-disposal authority. Serving
+refuses the underlying unmounted directory. No automatic mount, quota or filesystem-wide change.
+
+```bash
 python3 scripts/granite.py check --state "$GRANITE_STATE" --gpu "$GRANITE_GPU"
 python3 scripts/granite.py serve --state "$GRANITE_STATE" --gpu "$GRANITE_GPU"
 ```
@@ -150,7 +202,9 @@ The launcher creates private state, locks it, mounts model data read-only and pr
 cache. Hard limits include 32 GiB RAM/no swap, eight CPUs of aggregate CPU-time quota, 1024 PIDs,
 private 4 GiB shared memory,
 1 GiB temporary space and 64 MiB runtime space. Disk scans monitor image/scratch 32 GiB, model
-20 GiB, cache 8 GiB, logs/state 4 GiB, total 64 GiB; these are stop conditions, not disk quotas.
+20 GiB and logs/state 4 GiB, with total 64 GiB including the fixed 8 GiB cache backing.
+Cache has a finite filesystem bound even for unlinked open files; other disk limits are monitored
+stop conditions rather than quotas.
 GPU memory is monitored against 40 GiB; sampling can overshoot. Startup is bounded to 600 seconds,
 session to 3600 seconds, graceful stop to 30 seconds. Breaches, forced kill and cleanup failures
 are failures; no security/resource fallback occurs.

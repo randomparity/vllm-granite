@@ -10,6 +10,7 @@ import re
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -104,8 +105,31 @@ def download(source, path, item, budget):
     verify(partial, item)
     partial.replace(path)
 
+def cache_bytes(path, deadline=None):
+    entry = json.loads(run('findmnt', '--json', '--mountpoint', str(path), '-o',
+                           'TARGET,SOURCE,FSTYPE,FSROOT,OPTIONS', deadline=deadline))['filesystems']
+    require(len(entry) == 1, 'cache: require one dedicated mount; follow provisioning')
+    entry = entry[0]
+    source, options = entry['source'], set(entry['options'].split(','))
+    require(not path.is_symlink() and entry['target'] == str(path.resolve())
+            and entry['fstype'] == 'ext4' and entry['fsroot'] == '/'
+            and re.fullmatch(r'/dev/loop[0-9]+', source)
+            and {'rw', 'nosuid', 'nodev'} <= options and 'noexec' not in options
+            and not any('context=' in option for option in options),
+            'cache: require private ext4 loop filesystem root with nosuid,nodev and native labels')
+    directory, device = path.stat(), os.stat(source)
+    sectors = int((Path('/sys/class/block') / Path(source).name / 'size').read_text())
+    filesystem = os.statvfs(path)
+    require(stat.S_ISDIR(directory.st_mode) and directory.st_uid == os.getuid()
+            and stat.S_IMODE(directory.st_mode) == 0o700 and stat.S_ISBLK(device.st_mode)
+            and directory.st_dev == device.st_rdev and sectors * 512 == 8 * GIB
+            and 0 < filesystem.f_blocks * filesystem.f_frsize <= 8 * GIB,
+            'cache: mount ownership/device/capacity mismatch; follow provisioning')
+    return 8 * GIB
+
 class Budget:
-    def __init__(self, state, info):
+    def __init__(self, state, info, runtime=False):
+        self.runtime = runtime
         self.state = state
         self.store = Path(info['store']['graphRoot'])
         self.last = 0
@@ -125,7 +149,8 @@ class Budget:
         buckets = [max(0, allocated(self.store, True, deadline) - self.base['bytes'])
                    + allocated(self.state / 'pull-tmp', deadline=deadline),
                    allocated(self.state / 'model', deadline=deadline),
-                   allocated(self.state / 'cache', deadline=deadline), 0]
+                   cache_bytes(self.state / 'cache', deadline) if self.runtime
+                   else max(8 * GIB, allocated(self.state / 'cache', deadline=deadline)), 0]
         buckets[3] = self.state.stat().st_blocks * 512 + sum(allocated(path, deadline=deadline)
             for path in self.state.iterdir() if path.name not in {'model', 'cache', 'pull-tmp'})
         for size, limit in zip(buckets, (32, 20, 8, 4)):
@@ -270,7 +295,7 @@ DIAGNOSTIC_SERVER = ('import http.server,os,signal,sys; os.chdir("/tmp"); '
                      'http.server.test(HandlerClass=http.server.SimpleHTTPRequestHandler, '
                      'port=8000, bind="0.0.0.0")')
 
-PROBE = '''import json,os,sys
+PROBE = '''import json,mmap,os,sys,tempfile
 from importlib.metadata import version
 assert version("vllm")=="0.32.0"
 nodes={p:os.stat(p).st_rdev for p in json.loads(sys.argv[1])}
@@ -280,6 +305,11 @@ print(json.dumps(nodes))
 assert os.statvfs("/dev/shm").f_blocks*os.statvfs("/dev/shm").f_frsize==4*1024**3
 with open("/dev/shm/granite-probe","x") as probe:probe.write("ok")
 os.unlink("/dev/shm/granite-probe")
+with tempfile.TemporaryFile(dir="/cache") as cache:
+ cache.write(b"cache-probe");cache.flush();cache.seek(0)
+ assert cache.read()==b"cache-probe"
+ with mmap.mmap(cache.fileno(),0,prot=mmap.PROT_READ|mmap.PROT_EXEC) as mapped:
+  assert mapped[:]==b"cache-probe"
 '''
 NETWORK = '''import json,socket,sys
 for host,port in json.loads(sys.argv[1]):
@@ -500,7 +530,7 @@ def main():
         info = json.loads(run('podman', 'info', '--format=json'))
         require(info['host']['security']['rootless'] and os.getuid() != 0,
                 'preflight: rootless Podman required')
-        budget = Budget(state, info)
+        budget = Budget(state, info, runtime=args.action != 'acquire')
         if args.action == 'acquire':
             acquire(state, budget)
         else:
