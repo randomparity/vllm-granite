@@ -264,6 +264,11 @@ def argv(state, gpu, name, network):
         args += ['-e', f'{key}={value}']
     return args
 
+DIAGNOSTIC_SERVER = ('import http.server,os,signal,sys; os.chdir("/tmp"); '
+                     'signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); '
+                     'http.server.test(HandlerClass=http.server.SimpleHTTPRequestHandler, '
+                     'port=8000, bind="0.0.0.0")')
+
 PROBE = '''import json,os,sys
 from importlib.metadata import version
 assert version("vllm")=="0.32.0"
@@ -395,10 +400,7 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
         run('podman', 'network', 'create', '--internal', '--disable-dns', network)
         args = argv(state, gpu, name, network)
         if diagnostic:
-            server = ('import http.server,os,signal,sys; os.chdir("/tmp"); '
-                      'signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); '
-                      'http.server.test(port=8000, bind="0.0.0.0")')
-            args += ['--entrypoint=python3', IMAGE, '-c', server]
+            args += ['--entrypoint=python3', IMAGE, '-c', DIAGNOSTIC_SERVER]
         else:
             args += ['--entrypoint=vllm', IMAGE, 'serve', '/model', '--tokenizer', '/model',
                      '--served-model-name', 'granite', '--host', '0.0.0.0', '--port', '8000',

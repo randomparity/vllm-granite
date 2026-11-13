@@ -61,6 +61,13 @@ class MetadataCases(unittest.TestCase):
             g.HTTPSRedirect().redirect_request(None, None, 302, '', {}, 'http://example.invalid')
 
 class RuntimeCases(unittest.TestCase):
+    def test_diagnostic_http(self):
+        import http.server
+        def serve(HandlerClass=http.server.BaseHTTPRequestHandler, **kwargs):
+            self.assertTrue(callable(getattr(HandlerClass, 'do_GET', None)))
+        with patch.object(http.server, 'test', side_effect=serve), \
+             patch.object(g.os, 'chdir'), patch.object(g.signal, 'signal'):
+            exec(g.DIAGNOSTIC_SERVER)
     def test_budget(self):
         budget = g.Budget.__new__(g.Budget)
         budget.state, budget.store, budget.base, budget.last = Path('/state'), Path('/store'), {'bytes': 0}, 0
