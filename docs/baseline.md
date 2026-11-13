@@ -66,9 +66,9 @@ before the fix and passed afterward. Repair commit:
 `025f60778d2bd3c79e0c1b128bbbfbe74dba340b`.
 The [fixture manifest](evidence/baseline-fixtures.json) freezes hashes/counts/settings;
 the corresponding exact private bytes are retained. This verifies fixture construction,
-not server admission or GPU inference. No second measurement trial has been authorized or run.
+not server admission or GPU inference. The operator subsequently approved one additional bounded measurement trial; its execution
+is pending.
 
 The first inference baseline remains **incomplete**. No fit, startup, latency, throughput,
-cancellation or active-stop success is claimed from this attempt. Another measurement
-trial requires an explicit operator decision; pins, resource limits and security settings
-must remain unchanged.
+cancellation or active-stop success is claimed from this attempt. The additional approval covers exactly one further baseline-only attempt; pins, resource
+limits and security settings remain unchanged. A failure remains a failed trial.
