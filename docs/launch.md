@@ -172,7 +172,7 @@ git diff --check
 
 Acquisition at `206c5152122a4259f05caeb66f4f06fca703649f` verified the exact #2 image digest,
 linux/amd64 and all 13 model files (17,592,969,047 file bytes). Check passed at
-`5d19a26af96cc3cb71478411f0eb5999f372b2ee` in 15.784 seconds, without loading model weights.
+`2fce40d317bc7c0d55d86aed2fa3a087ccc286b3` in 15.921 seconds, without loading model weights.
 Observed selected device `GPU-A`: A6000; six CDI nodes included its NVIDIA data node,
 control/UVM nodes and selected-PCI DRM card/render nodes. Exact identities remain private.
 Observed MCS/project process type, Seccomp 2, NNP 1, zero effective capabilities, declared cgroup
