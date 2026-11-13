@@ -232,10 +232,11 @@ class RuntimeCases(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
             (state / 'logs').mkdir()
+            clock = iter([100])
             with patch.object(g, 'run', return_value=''), patch.object(g, 'cleanup'), \
                  patch.object(g, 'reachable', return_value=False), \
                  patch.object(g, 'observe', return_value={}) as observed, \
-                 patch.object(g.time, 'monotonic', side_effect=[100, 131]):
+                 patch.object(g.time, 'monotonic', side_effect=lambda: next(clock, 131)):
                 with self.assertRaisesRegex(RuntimeError, 'readiness deadline'):
                     g.launch(state, 'GPU-test', None, True)
                 self.assertEqual(observed.call_args.args[-1], 130)

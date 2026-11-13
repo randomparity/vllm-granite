@@ -284,3 +284,30 @@ class AllocationResponseCases(unittest.TestCase):
                 self.assertNotIn(message, str(caught.exception))
             finally:
                 client.close()
+
+class FailedCleanupCases(unittest.TestCase):
+    def test_failed_session_verifies_teardown_and_preserves_original_error(self):
+        for leaked in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                state = Path(directory)
+                (state / 'logs').mkdir()
+                (state / 'logs' / 'resources.json').write_text('["owned", "net"]')
+                (state / 'logs' / 'cleanup.json').write_text(json.dumps({
+                    'name': 'owned', 'status': 'passed', 'elapsed_s': .01}))
+                (state / 'logs' / 'inspect.json').write_text(json.dumps({
+                    'Name': 'owned', 'GraniteProof': {'cgroup': '/granite-test-absent-cgroup'}}))
+                result = {'cleanups': []}
+                trial = b.Trial(state, 'GPU-test', None, None, {}, result,
+                                b.time.monotonic() + 2)
+                fault = RuntimeError('request failed')
+                gpu_fault = RuntimeError('compute allocation remains') if leaked else None
+                with patch.object(g, 'preflight'), \
+                     patch.object(g, 'gpu_state', return_value=[0, 0, 321]), \
+                     patch.object(g, 'launch', side_effect=fault), \
+                     patch.object(g, 'gpu_processes', side_effect=gpu_fault) as processes, \
+                     patch.object(g, 'reachable', return_value=False):
+                    with self.assertRaisesRegex(RuntimeError, 'request failed') as caught:
+                        trial.session('cold')
+                self.assertIs(caught.exception, fault)
+                self.assertEqual(result['cleanups'][-1]['status'], 'failed' if leaked else 'passed')
+                processes.assert_called_once()

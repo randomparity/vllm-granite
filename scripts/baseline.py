@@ -465,45 +465,70 @@ class Trial:
             self.result['callback_returned_at'] = time.monotonic()
         return callback
 
+    def verify_teardown(self, cache, before):
+        logs = self.state / 'logs'
+        name = json.loads((logs / 'resources.json').read_text())[0]
+        clean = json.loads((logs / 'cleanup.json').read_text())
+        g.require(clean['name'] == name and clean['status'] == 'passed',
+                  'cleanup: launcher teardown was not verified')
+        g.require(clean['elapsed_s'] <= 30, 'W-stop: graceful cleanup exceeded 30 seconds')
+        observation = self.observation
+        if observation is None:
+            observation = json.loads((logs / 'inspect.json').read_text())
+            g.require(observation['Name'].lstrip('/') == name,
+                      'cleanup: original cgroup telemetry unavailable')
+        group = observation['GraniteProof']['cgroup']
+        end = time.monotonic() + 30
+        root = Path('/sys/fs/cgroup') / group.lstrip('/')
+        while root.exists():
+            seconds(end)
+            time.sleep(.1)
+        g.gpu_processes(self.gpu, self.baseline, deadline=end)
+        after = g.gpu_state(self.gpu, end)[2]
+        g.require(after <= before + 64 * 1024 ** 2,
+                  'cleanup: device allocation not released to initial baseline')
+        g.require(not g.reachable('127.0.0.1', 8000, end), 'cleanup: endpoint remains')
+        return {'cache': cache, 'status': 'passed', 'graceful_stop_and_remove_s': clean['elapsed_s'],
+                'old_cgroup_removed': True, 'project_gpu_processes_removed': True,
+                'endpoint_closed': True, 'device_before_bytes': before, 'device_after_bytes': after}
+
     def session(self, cache, functional=False, stop=False, first_only=False):
         seconds(self.deadline)
         g.preflight(self.state, self.gpu, self.baseline, deadline=self.deadline)
         seconds(self.deadline)
         before = g.gpu_state(self.gpu)[2]
+        self.name = self.observation = None
         try:
             g.launch(self.state, self.gpu, self.budget, False, self.baseline,
                      workload=self.workload(cache, functional, stop, first_only),
                      session_deadline=self.deadline)
-            elapsed = time.monotonic() - self.result['callback_returned_at']
-            g.require(elapsed <= 30, 'W-stop: graceful cleanup exceeded 30 seconds')
-            group = self.observation['GraniteProof']['cgroup']
-            end = min(self.deadline, time.monotonic() + 30)
-            root = Path('/sys/fs/cgroup') / group.lstrip('/')
-            while root.exists():
-                seconds(end)
-                time.sleep(.1)
-            g.gpu_processes(self.gpu, self.baseline)
-            after = g.gpu_state(self.gpu)[2]
-            g.require(after <= before + 64 * 1024 ** 2,
-                      'cleanup: device allocation not released to initial baseline')
-            g.require(not g.reachable('127.0.0.1', 8000), 'cleanup: endpoint remains')
-            self.result['cleanups'].append({'cache': cache, 'status': 'passed',
-                'graceful_stop_and_remove_s': elapsed, 'old_cgroup_removed': True,
-                'project_gpu_processes_removed': True, 'endpoint_closed': True,
-                'device_before_bytes': before, 'device_after_bytes': after})
             if stop:
-                # Connection was demonstrably active before the launcher entered cleanup.
                 try:
                     tail = self.held.response.read(2 * 1024 * 1024 + 1)
                     interruption = 'terminal' if b'data: [DONE]' in tail else 'eof'
                 except (OSError, http.client.HTTPException):
                     interruption = 'interrupted'
                 self.result['scenarios']['W-stop'] = {'status': 'stopped',
-                    'active_stream_termination': interruption, 'stop_s': elapsed}
+                    'active_stream_termination': interruption}
         finally:
-            if self.held:
-                self.held.close()
-                self.held = None
+            original = sys.exc_info()[1]
+            try:
+                cleanup_result = self.verify_teardown(cache, before)
+                self.result['cleanups'].append(cleanup_result)
+                if stop and original is None:
+                    self.result['scenarios']['W-stop']['stop_s'] = \
+                        cleanup_result['graceful_stop_and_remove_s']
+            except BaseException as error:
+                self.result['cleanups'].append({'cache': cache,
+                    'status': 'unavailable' if isinstance(error, FileNotFoundError) else 'failed',
+                    'failure_class': type(error).__name__})
+                self.result.setdefault('private_cleanup_errors', []).append(str(error))
+                if original is None:
+                    raise
+            finally:
+                if self.held:
+                    self.held.close()
+                    self.held = None
 
 
 def materialize(name, state, deadline):
@@ -637,7 +662,8 @@ def run_trial(args):
                 and error.errno in (errno.ENOMEM, errno.ENOSPC)
                 or any(word in str(error) for word in ('cgroup OOM', 'server stopped/OOM',
                                                        'GPU memory exceeds', 'disk:')))
-            if trial and resource_error and 'cleanup' not in str(error):
+            if (trial and resource_error and result['cleanups']
+                    and result['cleanups'][-1]['status'] == 'passed'):
                 resource = result['scenarios']['W-resource']
                 resource['runtime_recovery'] = 'attempted-once'
                 try:

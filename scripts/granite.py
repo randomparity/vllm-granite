@@ -516,15 +516,21 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
         raise RuntimeError('runtime: 60-minute session ended; stop and record incomplete trial')
     finally:
         original = sys.exc_info()[1]
+        cleanup_start, clean = time.monotonic(), False
         try:
-            (state / 'logs' / 'runtime-peaks.json').write_text(
-                json.dumps(observation.get('GranitePeaks', {})))
-        finally:
-            cleanup(name, network)
-        try:
+            try:
+                (state / 'logs' / 'runtime-peaks.json').write_text(
+                    json.dumps(observation.get('GranitePeaks', {})))
+            finally:
+                cleanup(name, network)
             require(not reachable('127.0.0.1', 8000), 'cleanup: endpoint remains; inspect host')
+            clean = True
         except Exception as error:
             raise RuntimeError(f'{original or "run ended"}; {error}') from error
+        finally:
+            (state / 'logs' / 'cleanup.json').write_text(json.dumps({
+                'name': name, 'status': 'passed' if clean else 'failed',
+                'elapsed_s': time.monotonic() - cleanup_start}))
 
 def main():
     global ERROR_LOG
