@@ -176,8 +176,9 @@ def parse_stream(source, check, first_only=False):
             g.require(len(tail) <= 65536 and not tail.strip(), 'stream: data after terminal marker')
             return dict(tokens, finish_reason=finished, first_text_at=first)
         data = json.loads(item)
-        g.require(data.get('model') == 'granite' and 'error' not in data,
-                  'stream: wrong model or error event')
+        if 'error' in data:
+            raise ResponseFailure(200, encoded(data))
+        g.require(data.get('model') == 'granite', 'stream: wrong model')
         if identity is None:
             identity = data['id']
         g.require(data['id'] == identity, 'stream: completion identity changed')

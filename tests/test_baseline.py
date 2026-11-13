@@ -311,3 +311,12 @@ class FailedCleanupCases(unittest.TestCase):
                 self.assertIs(caught.exception, fault)
                 self.assertEqual(result['cleanups'][-1]['status'], 'failed' if leaked else 'passed')
                 processes.assert_called_once()
+
+class StreamAllocationCases(unittest.TestCase):
+    def test_stream_allocation_failure_uses_retained_resource_error(self):
+        body = event(error={'message': 'CUDA out of memory', 'type': 'InternalServerError'})
+        with self.assertRaises(RuntimeError) as caught:
+            b.parse_stream(io.BytesIO(body), lambda: None)
+        self.assertEqual(getattr(caught.exception, 'resource_class', None), 'gpu-allocation')
+        self.assertIn(b'CUDA out of memory', caught.exception.body)
+        self.assertNotIn('CUDA out of memory', str(caught.exception))
