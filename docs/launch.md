@@ -226,12 +226,15 @@ git diff --check
 
 Acquisition at `206c5152122a4259f05caeb66f4f06fca703649f` verified the exact #2 image digest,
 linux/amd64 and all 13 model files (17,592,969,047 file bytes). Check passed at
-`297c436a9d03a4157eafd0981e2bff55d264b51d` in 15.729 seconds, without loading model weights.
+`2d4d5f1a77e6bcebd274bac6e7f710e4f60a432e` in 15.962 seconds, without loading model weights.
 Observed selected device `GPU-A`: A6000; six CDI nodes included its NVIDIA data node,
 control/UVM nodes and selected-PCI DRM card/render nodes. Exact identities remain private.
 Observed MCS/project process type, Seccomp 2, NNP 1, zero effective capabilities, declared cgroup
 limits and readonly/bounded mounts matched. Loopback HTTP worked; non-loopback ingress and
-external/mapped-host/host-address TCP attempts failed. Graceful cleanup removed owned resources.
+external/mapped-host/host-address TCP attempts failed. Graceful cleanup removed owned resources. The finite ext4 cache passed native host attestation
+and a confined create/read/unlink/executable-mmap probe with private labeling. A separate64MiB
+filesystem refused open-unlinked writes at55,574,528 bytes in0.154 seconds; all probe artifacts
+were removed after normal unmount, while production cache/backing were retained.
 SELinux stayed enforcing; both shared device booleans stayed off; no recent project AVC appeared.
 The approved `desktop-process-A` baseline stayed at 38 MiB; no new competing compute work appeared.
 Default seccomp SHA-256: `2598b3b98e6970f37f917e210202fa8976aefcd99abf8955803a6e35bba17eb4`.

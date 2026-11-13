@@ -3,7 +3,7 @@
 ## Status
 
 Accepted by the operator on 2026-11-13. Provisioning and a separate bounded allocation test passed;
-pinned-image integration is required before handoff.
+pinned-image cache write/read/executable-mmap and confinement diagnostics also passed.
 
 ## Context
 
