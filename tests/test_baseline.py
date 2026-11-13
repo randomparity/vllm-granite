@@ -292,6 +292,7 @@ class FailedCleanupCases(unittest.TestCase):
                 state = Path(directory)
                 (state / 'logs').mkdir()
                 (state / 'logs' / 'resources.json').write_text('["owned", "net"]')
+                (state / 'logs' / 'runtime-peaks.json').write_text('{}')
                 (state / 'logs' / 'cleanup.json').write_text(json.dumps({
                     'name': 'owned', 'status': 'passed', 'elapsed_s': .01}))
                 (state / 'logs' / 'inspect.json').write_text(json.dumps({
@@ -320,3 +321,34 @@ class StreamAllocationCases(unittest.TestCase):
         self.assertEqual(getattr(caught.exception, 'resource_class', None), 'gpu-allocation')
         self.assertIn(b'CUDA out of memory', caught.exception.body)
         self.assertNotIn('CUDA out of memory', str(caught.exception))
+
+class RecoveryEvidenceCases(unittest.TestCase):
+    def test_startup_failure_evidence_survives_following_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'logs').mkdir()
+            result = {'cleanups': [], 'resource_peaks': {}, 'private_runtime': []}
+            trial = b.Trial(state, 'GPU-test', None, None, {}, result,
+                            b.time.monotonic() + 2)
+            attempts = iter((('failed-start', 999), ('recovery', 111)))
+            def launch(*args, **kwargs):
+                name, peak = next(attempts)
+                (state / 'logs' / 'resources.json').write_text(json.dumps([name, 'net']))
+                (state / 'logs' / 'cleanup.json').write_text(json.dumps({
+                    'name': name, 'status': 'passed', 'elapsed_s': .01}))
+                (state / 'logs' / 'inspect.json').write_text(json.dumps({
+                    'Name': name, 'GraniteProof': {'cgroup': '/granite-test-absent-cgroup'}}))
+                (state / 'logs' / 'runtime-peaks.json').write_text(json.dumps({
+                    'gpu_sample_bytes': peak, 'memory_peak_bytes': peak}))
+                if name == 'failed-start':
+                    raise RuntimeError('cgroup OOM')
+            with patch.object(g, 'preflight'), patch.object(g, 'launch', side_effect=launch), \
+                 patch.object(g, 'gpu_state', return_value=[0, 0, 0]), \
+                 patch.object(g, 'gpu_processes'), patch.object(g, 'reachable', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'cgroup OOM'):
+                    trial.session('cold')
+                trial.session('recovery', first_only=True)
+            self.assertEqual(result['resource_peaks']['gpu_sample_bytes'], 999)
+            self.assertEqual(len(result['private_runtime']), 2)
+            self.assertEqual(result['private_runtime'][0]['observation']['Name'], 'failed-start')
+            self.assertEqual(result['private_runtime'][1]['observation']['Name'], 'recovery')

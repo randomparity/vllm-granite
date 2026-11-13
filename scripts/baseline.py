@@ -437,7 +437,6 @@ class Trial:
     def workload(self, cache, functional=False, stop=False, first_only=False):
         def callback(name, observation, start, startup_deadline):
             self.name, self.observation = name, observation
-            self.result['private_runtime'].append(observation)
             for key, value in observation.get('GranitePeaks', {}).items():
                 self.result['resource_peaks'][key] = max(
                     value, self.result['resource_peaks'].get(key, 0))
@@ -469,15 +468,21 @@ class Trial:
     def verify_teardown(self, cache, before):
         logs = self.state / 'logs'
         name = json.loads((logs / 'resources.json').read_text())[0]
-        clean = json.loads((logs / 'cleanup.json').read_text())
-        g.require(clean['name'] == name and clean['status'] == 'passed',
-                  'cleanup: launcher teardown was not verified')
-        g.require(clean['elapsed_s'] <= 30, 'W-stop: graceful cleanup exceeded 30 seconds')
         observation = self.observation
         if observation is None:
             observation = json.loads((logs / 'inspect.json').read_text())
             g.require(observation['Name'].lstrip('/') == name,
                       'cleanup: original cgroup telemetry unavailable')
+        peaks = json.loads((logs / 'runtime-peaks.json').read_text())
+        self.result.setdefault('private_runtime', []).append({
+            'cache': cache, 'observation': observation, 'peaks': peaks})
+        totals = self.result.setdefault('resource_peaks', {})
+        for key, value in peaks.items():
+            totals[key] = max(value, totals.get(key, 0))
+        clean = json.loads((logs / 'cleanup.json').read_text())
+        g.require(clean['name'] == name and clean['status'] == 'passed',
+                  'cleanup: launcher teardown was not verified')
+        g.require(clean['elapsed_s'] <= 30, 'W-stop: graceful cleanup exceeded 30 seconds')
         group = observation['GraniteProof']['cgroup']
         end = time.monotonic() + 30
         root = Path('/sys/fs/cgroup') / group.lstrip('/')
