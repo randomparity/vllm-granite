@@ -45,7 +45,7 @@ def request_deadline(trial, startup=None):
 def fixture_payloads(tokenizer):
     def count(text):
         return len(tokenizer.apply_chat_template([{'role': 'user', 'content': text}],
-                   tokenize=True, add_generation_prompt=True))
+                   tokenize=True, add_generation_prompt=True, return_dict=False))
     def fill(unit, target):
         lo, hi = 0, target
         while lo < hi:

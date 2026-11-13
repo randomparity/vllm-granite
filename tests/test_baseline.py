@@ -208,3 +208,15 @@ class EvidenceCases(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'still references'):
                     b.reset_cache(state)
             self.assertEqual(content.read_text(), 'compilation')
+
+class TokenizerReturnCases(unittest.TestCase):
+    def test_explicit_token_ids_with_transformers_mapping_default(self):
+        class Tokenizer:
+            def apply_chat_template(self, messages, **kwargs):
+                ids = list(range(len(messages[0]['content'].split()) + 17))
+                if kwargs.get('return_dict') is False:
+                    return ids
+                return {'input_ids': ids, 'attention_mask': [1] * len(ids)}
+        values = b.fixture_payloads(Tokenizer())
+        self.assertEqual(values['F-context']['input_tokens'], 3840)
+        self.assertEqual(values['F-over']['input_tokens'], 4097)
