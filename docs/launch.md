@@ -15,7 +15,7 @@ image/model pins and resource limits remain unchanged. Full inference/fit belong
 Its only explicit device grant is `getattr open read write ioctl map` on character devices
 with type `xserver_misc_device_t`. Existing `container_t` is unchanged. The base template
 includes MCS constraints; the network template is not an egress firewall. Device identity
-and reachability still need actual launch validation. See [ADR 0001](adr/0001-project-gpu-selinux.md).
+and reachability are separately verified by the pinned-image check below. See [ADR 0001](adr/0001-project-gpu-selinux.md).
 
 Prerequisites already observed on the target: Fedora 44/x86_64, container-selinux
 2.251.0-1.fc44, SELinux policy 44.11-1.fc44, policycoreutils 3.11, Podman 5.8.7,
@@ -72,7 +72,7 @@ read-only root, dropped capabilities, no-new-privileges, one CPU, 256 MiB RAM/no
 swap and 64 PIDs. Use the exact selected A6000 CDI UUID privately and compare the returned
 identity privately; publish only the stable device alias. The earlier diagnostic used an
 already-local vLLM image, not the #2 pin, so it established only the host access blocker.
-Pinned-image acquisition and the full launch still require their own verification. The successful
+The pinned-image check below supplies later acquisition/access evidence; full inference remains #5. The successful
 diagnostic verified exactly the selected A6000, its supporting control/UVM/capability nodes,
 `granite_server.process` with MCS, `Seccomp: 2`, `NoNewPrivs: 1`, and zero effective capabilities.
 SELinux remained enforcing, both shared device booleans remained off, no fresh project AVC
@@ -168,8 +168,26 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 git diff --check
 ```
 
-Pinned-image live acquisition/check evidence is recorded after executing these commands against
-committed source; cached-image prerequisite evidence above does not substitute for that result.
+## Pinned live evidence (2026-11-13)
+
+Acquisition at `206c5152122a4259f05caeb66f4f06fca703649f` verified the exact #2 image digest,
+linux/amd64 and all 13 model files (17,592,969,047 file bytes). Check passed at
+`5d19a26af96cc3cb71478411f0eb5999f372b2ee` in 15.784 seconds, without loading model weights.
+Observed selected device `GPU-A`: A6000; six CDI nodes included its NVIDIA data node,
+control/UVM nodes and selected-PCI DRM card/render nodes. Exact identities remain private.
+Observed MCS/project process type, Seccomp 2, NNP 1, zero effective capabilities, declared cgroup
+limits and readonly/bounded mounts matched. Loopback HTTP worked; non-loopback ingress and
+external/mapped-host/host-address TCP attempts failed. Graceful cleanup removed owned resources.
+SELinux stayed enforcing; both shared device booleans stayed off; no recent project AVC appeared.
+The approved `desktop-process-A` baseline stayed at 38 MiB; no new competing compute work appeared.
+Default seccomp SHA-256: `2598b3b98e6970f37f917e210202fa8976aefcd99abf8955803a6e35bba17eb4`.
+
+Earlier pinned checks failed honestly: unavailable cpuset delegation (15.061 s), unsupported
+NVIDIA minor query plus forced HTTP stop (45.579 s), then GET 501 from an incorrect diagnostic
+handler (45.865 s). Corrected CPU quota use, supported driver metadata, private stdout-error
+capture and explicit HTTP handler/SIGTERM handling resolved these causes; no extra grants or
+resource increases were applied. Each failed attempt removed its owned container/network.
+Full inference, fit, cold/warm timing, throughput and workload outputs remain unrun and owned by #5.
 
 The first pinned-image check exposed unavailable rootless `cpuset` delegation. The launcher uses
 the supported eight-CPU time quota and verifies `cpu.max`; it does not require core affinity.

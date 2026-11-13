@@ -3,7 +3,7 @@
 ## Status
 
 Accepted for the exact approved installation on 2026-11-13. Linking and a bounded cached-image
-CDI diagnostic passed; pinned acquisition and inference remain untested.
+CDI diagnostic passed; pinned acquisition/access later passed, while inference remains untested.
 
 ## Context
 
