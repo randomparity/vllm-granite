@@ -121,7 +121,7 @@ class RuntimeCases(unittest.TestCase):
     def test_stderr(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / 'error.log'
-            error = g.subprocess.CalledProcessError(125, 'podman', stderr='x' * 70000 + 'refused')
+            error = g.subprocess.CalledProcessError(125, 'podman', output='x' * 70000 + 'refused', stderr='')
             with patch.object(g, 'ERROR_LOG', log), \
                  patch.object(g.subprocess, 'check_output', side_effect=error):
                 with self.assertRaisesRegex(RuntimeError, str(log)) as caught:
@@ -144,7 +144,8 @@ class RuntimeCases(unittest.TestCase):
         devices = [{'path': '/dev/nvidia2', 'major': 195, 'minor': 2, 'type': 'c'},
                    {'path': '/dev/dri/card2', 'major': 226, 'minor': 2, 'type': 'c'}]
         nodes = {d['path']: g.os.makedev(d['major'], d['minor']) for d in devices}
-        with patch.object(g, 'run', return_value='2, 00000000:01:00.0'), \
+        with patch.object(g, 'run', return_value='00000000:01:00.0'), \
+             patch.object(Path, 'read_text', return_value='GPU UUID: GPU-test\nDevice Minor: 2'), \
              patch.object(g.os, 'stat', side_effect=lambda path: SimpleNamespace(st_rdev=nodes[path])), \
              patch.object(Path, 'resolve', return_value=Path('/sys/devices/0000:01:00.0')):
             g.device_proof(devices, nodes, 'GPU-test')

@@ -46,7 +46,7 @@ def run(*args, deadline=None):
     try:
         return subprocess.check_output(args, text=True, stderr=subprocess.PIPE, timeout=timeout).strip()
     except (subprocess.SubprocessError, OSError) as error:
-        detail = getattr(error, 'stderr', None) or str(error)
+        detail = getattr(error, 'stderr', None) or getattr(error, 'output', None) or str(error)
         if isinstance(detail, bytes):
             detail = detail.decode(errors='replace')
         require(ERROR_LOG is not None, 'command: private error log was not initialized')
@@ -287,8 +287,12 @@ for host,port in json.loads(sys.argv[1]):
 def device_proof(devices, nodes, gpu, deadline=None):
     expected = {d['path']: os.makedev(d['major'], d['minor']) for d in devices}
     require(len(expected) == len(devices) and nodes == expected, 'runtime: incomplete OCI device view')
-    minor, pci = run('nvidia-smi', '-i', gpu, '--query-gpu=minor_number,pci.bus_id',
-                     '--format=csv,noheader,nounits', deadline=deadline).split(', ')
+    pci = run('nvidia-smi', '-i', gpu, '--query-gpu=pci.bus_id',
+              '--format=csv,noheader', deadline=deadline)
+    info = Path('/proc/driver/nvidia/gpus') / pci.lower()[-12:] / 'information'
+    fields = dict(line.split(':', 1) for line in info.read_text().splitlines())
+    require(fields['GPU UUID'].strip() == gpu, 'runtime: NVIDIA device identity mismatch')
+    minor = fields['Device Minor'].strip()
     indexed = [d for d in devices if re.fullmatch('/dev/nvidia[0-9]+', d['path'])]
     require(len(indexed) == 1 and indexed[0]['minor'] == int(minor), 'runtime: wrong GPU device')
     for device in devices:
