@@ -1,0 +1,7 @@
+; Candidate only: installation requires explicit operator approval.
+(block granite_server
+    (blockinherit container)
+    (blockinherit net_container)
+    (allow process xserver_misc_device_t
+        (chr_file (getattr open read write ioctl map)))
+)
