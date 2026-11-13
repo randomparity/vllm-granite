@@ -62,14 +62,48 @@ class MetadataCases(unittest.TestCase):
 
 class RuntimeCases(unittest.TestCase):
     def test_readiness_redirect(self):
-        connection = g.http.client.HTTPConnection('127.0.0.1', 8000)
         for status in (200, 302, 307):
-            with patch.object(g.http.client, 'HTTPConnection', return_value=connection), \
-                 patch.object(connection, 'request') as request, \
-                 patch.object(connection, 'getresponse', return_value=SimpleNamespace(status=status)), \
-                 patch.object(connection, 'close'), patch.object(g.time, 'monotonic', return_value=10):
+            with patch.object(g.socket, 'create_connection') as connect, \
+                 patch.object(g.time, 'monotonic', return_value=10):
+                connection = connect.return_value.__enter__.return_value
+                connection.recv.return_value = f'HTTP/1.1 {status} Status\r\n\r\n'.encode()
                 self.assertEqual(g.readiness(False, 11), status == 200)
-                request.assert_called_once_with('GET', '/health')
+                connect.assert_called_once_with(('127.0.0.1', 8000), timeout=1)
+                self.assertTrue(connection.sendall.call_args.args[0].startswith(b'GET /health '))
+    def test_readiness_headers(self):
+        for response in (b'', b'invalid\r\n\r\n', b'x' * 4096):
+            with patch.object(g.socket, 'create_connection') as connect, \
+                 patch.object(g.time, 'monotonic', return_value=10):
+                connection = connect.return_value.__enter__.return_value
+                connection.recv.return_value = response
+                self.assertFalse(g.readiness(True, 11))
+                self.assertLessEqual(connection.recv.call_count, 17)
+    def test_readiness_trickle(self):
+        clock = [0.0]
+        class Trickle(io.RawIOBase):
+            payload = bytearray(b'HTTP/1.1 200 OK\r\nX-Test: ' + b'x' * 1300 + b'\r\n\r\n')
+            def readable(self):
+                return True
+            def readinto(self, target):
+                data = self.recv(len(target))
+                target[:len(data)] = data
+                return len(data)
+            def recv(self, size):
+                clock[0] += 0.5
+                return bytes([self.payload.pop(0)]) if self.payload else b''
+            def makefile(self, *args):
+                return io.BufferedReader(self)
+            def sendall(self, data):
+                pass
+            def settimeout(self, timeout):
+                pass
+            def setsockopt(self, *args):
+                pass
+        with patch.object(g.socket, 'create_connection', return_value=Trickle()), \
+             patch.object(g.time, 'monotonic', side_effect=lambda: clock[0]):
+            with self.assertRaises(TimeoutError):
+                g.readiness(False, 600)
+        self.assertLessEqual(clock[0], 1)
     def test_diagnostic_http(self):
         import http.server
         def serve(HandlerClass=http.server.BaseHTTPRequestHandler, **kwargs):

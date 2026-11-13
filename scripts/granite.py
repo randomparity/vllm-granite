@@ -3,7 +3,6 @@
 import argparse
 import fcntl
 import hashlib
-import http.client
 import json
 import os
 from pathlib import Path
@@ -339,13 +338,25 @@ def observe(name, gpu, deadline):
     return value
 
 def readiness(diagnostic, deadline):
-    connection = http.client.HTTPConnection('127.0.0.1', 8000,
-                                            timeout=min(1, remaining(deadline)))
-    try:
-        connection.request('GET', '/' if diagnostic else '/health')
-        return connection.getresponse().status == 200
-    finally:
-        connection.close()
+    end = min(deadline, time.monotonic() + 1)
+    path = '/' if diagnostic else '/health'
+    with socket.create_connection(('127.0.0.1', 8000), timeout=remaining(end)) as connection:
+        connection.settimeout(remaining(end))
+        connection.sendall(f'GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n'.encode())
+        headers = b''
+        while b'\r\n\r\n' not in headers:
+            seconds = end - time.monotonic()
+            if seconds <= 0:
+                raise TimeoutError('readiness: total exchange exceeded one second')
+            connection.settimeout(seconds)
+            block = connection.recv(4096)
+            if not block or len(headers) + len(block) > 65536:
+                return False
+            headers += block
+        if time.monotonic() >= end:
+            raise TimeoutError('readiness: total exchange exceeded one second')
+        status = headers.split(b'\r\n', 1)[0]
+        return re.fullmatch(rb'HTTP/1\.[01] 200(?: [^\r\n]*)?', status) is not None
 
 def reachable(host, port, deadline=None):
     timeout = min(1, remaining(deadline)) if deadline else 1
@@ -446,7 +457,7 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
                 remaining(deadline)
                 try:
                     ready = readiness(diagnostic, deadline)
-                except (OSError, http.client.HTTPException):
+                except OSError:
                     pass
                 remaining(deadline)
                 if ready:

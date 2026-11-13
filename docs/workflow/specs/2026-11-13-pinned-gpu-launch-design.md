@@ -86,7 +86,7 @@ clean owned state; failed cleanup requires operator inspection before retry. Ret
   are untrusted. Local clients share the API; hostile same-UID naming races are not promised against.
 - Controls: exact allowlist/hash/size, argv without shell, private locked state, readonly model,
   UUID/OCI/PCI checks, minimal mounts/caps, enforcing domain/default seccomp, internal network,
-  fixed-loopback direct HTTP status with no redirect following, hard cgroups and monitored disk/GPU. Failure details remain private.
+  fixed-loopback direct HTTP status with no redirects, one-second total exchange and 64 KiB header cap, hard cgroups and monitored disk/GPU. Failure details remain private.
 - Out of scope: local-user authentication, driver exploit prevention, signature trust roots,
   remote exposure and orchestration, as excluded by #1/operator.
 
