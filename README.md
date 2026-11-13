@@ -4,3 +4,5 @@ Develop an seccomp policy for a vLLM based podman container running the IBM Gran
 model.
 
 See the [compatibility candidates and initial budget](docs/compatibility.md).
+
+See the [threat model and validation workload](docs/threat-model-and-workload.md).
