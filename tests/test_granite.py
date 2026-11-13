@@ -61,6 +61,15 @@ class MetadataCases(unittest.TestCase):
             g.HTTPSRedirect().redirect_request(None, None, 302, '', {}, 'http://example.invalid')
 
 class RuntimeCases(unittest.TestCase):
+    def test_readiness_redirect(self):
+        connection = g.http.client.HTTPConnection('127.0.0.1', 8000)
+        for status in (200, 302, 307):
+            with patch.object(g.http.client, 'HTTPConnection', return_value=connection), \
+                 patch.object(connection, 'request') as request, \
+                 patch.object(connection, 'getresponse', return_value=SimpleNamespace(status=status)), \
+                 patch.object(connection, 'close'), patch.object(g.time, 'monotonic', return_value=10):
+                self.assertEqual(g.readiness(False, 11), status == 200)
+                request.assert_called_once_with('GET', '/health')
     def test_diagnostic_http(self):
         import http.server
         def serve(HandlerClass=http.server.BaseHTTPRequestHandler, **kwargs):

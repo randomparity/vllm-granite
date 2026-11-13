@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -337,6 +338,15 @@ def observe(name, gpu, deadline):
     value['GraniteProof'] = {'devices': nodes, 'status': status, 'label': label, 'cgroup': group}
     return value
 
+def readiness(diagnostic, deadline):
+    connection = http.client.HTTPConnection('127.0.0.1', 8000,
+                                            timeout=min(1, remaining(deadline)))
+    try:
+        connection.request('GET', '/' if diagnostic else '/health')
+        return connection.getresponse().status == 200
+    finally:
+        connection.close()
+
 def reachable(host, port, deadline=None):
     timeout = min(1, remaining(deadline)) if deadline else 1
     try:
@@ -435,10 +445,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
             if not ready:
                 remaining(deadline)
                 try:
-                    with HTTP.open('http://127.0.0.1:8000/' + ('' if diagnostic else 'health'),
-                                   timeout=min(1, remaining(deadline))) as response:
-                        ready = response.status == 200
-                except OSError:
+                    ready = readiness(diagnostic, deadline)
+                except (OSError, http.client.HTTPException):
                     pass
                 remaining(deadline)
                 if ready:

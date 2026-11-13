@@ -81,12 +81,12 @@ clean owned state; failed cleanup requires operator inspection before retry. Ret
 ## Threat model
 
 - Added boundaries: HTTPS→state, CLI path/UUID→argv, artifacts→container, container→devices/files/
-  network/cgroups. Widened boundary: only ADR0001's approved, installed process-device grant.
+  network/cgroups; container HTTP responses→host readiness client. Widened boundary: only ADR0001's approved, installed process-device grant.
 - Trust: operator/kernel/runtime/driver/TLS roots/upstream publishers are trusted; workers/API input
   are untrusted. Local clients share the API; hostile same-UID naming races are not promised against.
 - Controls: exact allowlist/hash/size, argv without shell, private locked state, readonly model,
   UUID/OCI/PCI checks, minimal mounts/caps, enforcing domain/default seccomp, internal network,
-  loopback ingress, hard cgroups and monitored disk/GPU. Failure details remain private.
+  fixed-loopback direct HTTP status with no redirect following, hard cgroups and monitored disk/GPU. Failure details remain private.
 - Out of scope: local-user authentication, driver exploit prevention, signature trust roots,
   remote exposure and orchestration, as excluded by #1/operator.
 
