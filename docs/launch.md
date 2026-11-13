@@ -1,11 +1,12 @@
-# Launch prerequisite: proposed SELinux policy
+# Launch prerequisite: approved SELinux policy
 
-This is a reviewable prerequisite for #4, **not a completed acquisition/launch package**.
-No policy was installed. Do not run the administrative commands below until the operator
-approves the exact candidate and installation. #2's image/model pins and resource limits
-remain unchanged. Full inference/fit and workload execution belong to #5.
+This is the installed prerequisite for #4, **not a completed acquisition/launch package**.
+On 2026-11-13 the operator approved the exact three hashed CIL inputs below; installation
+and the bounded no-network diagnostic succeeded. These commands document that prerequisite;
+another installation requires its own host-admin decision and module reconciliation. #2's
+image/model pins and resource limits remain unchanged. Full inference/fit belongs to #5.
 
-## Permission change to review
+## Approved permission change
 
 [granite_server.cil](../policy/selinux/granite_server.cil) adds an opt-in process domain,
 `granite_server.process`, using the distribution's container and networking templates.
@@ -17,7 +18,7 @@ and reachability still need actual launch validation. See [ADR 0001](adr/0001-pr
 Prerequisites already observed on the target: Fedora 44/x86_64, container-selinux
 2.251.0-1.fc44, SELinux policy 44.11-1.fc44, policycoreutils 3.11, Podman 5.8.7,
 crun 1.28, NVIDIA toolkit 1.19.1 and enforcing SELinux. The templates are supplied by
-container-selinux; udica installation is unnecessary. Verify them before requesting approval:
+container-selinux; udica installation is unnecessary. Verify them before an authorized installation:
 
 ```bash
 getenforce
@@ -30,8 +31,8 @@ sha256sum policy/selinux/granite_server.cil \
 Candidate validation performed before installation: the installed libsepol 3.11 parser
 accepted the candidate and both templates and rejected a deliberately malformed CIL input.
 Referenced types, attributes and character-device permissions resolve in the loaded policy;
-`granite_server.process` is not installed. This is syntax/symbol evidence, not complete
-host-policy linking, effective-rule analysis or runtime proof.
+`granite_server.process` was absent at that checkpoint. The later authorized installation
+linked successfully; the runtime evidence below remains narrower than full inference proof.
 
 Reviewed input SHA-256 values (recheck before installation):
 
@@ -48,7 +49,7 @@ these names requires reconciliation; do not overwrite another project's modules 
 sudo semodule -lfull
 ```
 
-After explicit approval and reconciliation, installation would be:
+After the exact-input approval and module reconciliation, this installation succeeded:
 
 ```bash
 sudo semodule -i policy/selinux/granite_server.cil \
@@ -61,14 +62,24 @@ The administrator should record which modules were already present and their ver
 installation. No boolean, physical-device label, permissive domain or global enforcement change
 is part of this request. A link failure is a blocker; do not disable policy checks to proceed.
 
-## Bounded validation after approval
+## Bounded validation result and repetition
 
-First repeat the no-network CDI diagnostic with the new process label, default seccomp,
+The approved no-network CDI diagnostic passed. To repeat after an authorized change, use
+the project process label, default seccomp,
 read-only root, dropped capabilities, no-new-privileges, one CPU, 256 MiB RAM/no additional
 swap and 64 PIDs. Use the exact selected A6000 CDI UUID privately and compare the returned
 identity privately; publish only the stable device alias. The earlier diagnostic used an
 already-local vLLM image, not the #2 pin, so it established only the host access blocker.
-Pinned-image acquisition and the full launch still require their own verification.
+Pinned-image acquisition and the full launch still require their own verification. The successful
+diagnostic verified exactly the selected A6000, its supporting control/UVM/capability nodes,
+`granite_server.process` with MCS, `Seccomp: 2`, `NoNewPrivs: 1`, and zero effective capabilities.
+SELinux remained enforcing, both shared device booleans remained off, no fresh project AVC
+appeared, and the owned container was removed. No additional policy grant was needed.
+
+A separate cached-image internal-network HTTP diagnostic also passed: loopback publication
+worked, non-loopback publication failed, and external/mapped-host/host-address TCP attempts
+failed. The owned internal network had DNS disabled and no gateway; cleanup passed. This
+is sampled reachability evidence, not a claim about the unacquired pinned image or inference.
 
 Observe the process label and MCS categories externally and verify `Seccomp: 2` and
 `NoNewPrivs: 1`. Check the host audit for fresh denials. Require exactly the selected GPU;

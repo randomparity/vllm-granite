@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed for #4. The operator approved preparing this policy and its provisioning on
-2026-11-13; installation is not approved. This record does not establish GPU feasibility.
+Accepted for the exact approved installation on 2026-11-13. Policy linking and a bounded
+cached-image CDI diagnostic passed. Pinned-image/model acquisition and inference remain untested.
 
 ## Context
 
@@ -15,7 +15,7 @@ The default seccomp profile remains enabled; no SELinux exception was applied.
 
 ## Decision
 
-Propose [granite_server.cil](../../policy/selinux/granite_server.cil), an opt-in
+Use [granite_server.cil](../../policy/selinux/granite_server.cil), an opt-in
 `granite_server.process` domain inheriting the installed container-selinux `container`
 and `net_container` templates. Add only character-device `getattr`, `open`, `read`,
 `write`, `ioctl` and `map` for `xserver_misc_device_t` from that domain. Read/getattr
@@ -24,7 +24,7 @@ not trace-derived evidence. Keep MCS constraints supplied by the base template.
 
 Select the domain explicitly with `--security-opt label=type:granite_server.process`.
 Do not change `container_t`, device labels, SELinux booleans, or enforcement mode.
-[Provisioning and bounded validation](../launch.md) require a separate installation decision.
+[Provisioning and bounded validation](../launch.md) record the exact approved installation.
 Use the upstream [udica template workflow](https://github.com/containers/udica), without
 installing its generator or copying the distribution's container baseline into this repo.
 
@@ -37,8 +37,9 @@ A trusted local operator can deliberately select this domain for another contain
 The network template permits networking; network isolation and loopback publication remain
 separate launch requirements. This policy supplies no egress restriction or driver protection.
 Inherited permissions can change when container-selinux changes; record its version and
-hash both templates, then repeat affected verification after upgrades. Host policy linking
-and runtime use remain untested. A new denial requires investigation, not automatic grants.
+hash both templates, then repeat affected verification after upgrades. The bounded diagnostic
+verified one selected GPU, MCS, NNP and default seccomp; it performed no inference. A new denial
+requires investigation, not automatic grants.
 
 ## Considered & rejected
 
