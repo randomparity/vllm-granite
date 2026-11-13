@@ -1,0 +1,250 @@
+# Pinned acquisition and confined GPU launch
+
+The stdlib `scripts/granite.py` command separates online acquisition from offline diagnostics
+and foreground serving. Full inference/fit and workload measurements belong to #5.
+
+On 2026-11-13 the operator approved the exact three hashed CIL inputs below; installation
+and the bounded no-network diagnostic succeeded. These commands document that prerequisite;
+another installation requires its own host-admin decision and module reconciliation. #2's
+image/model pins and resource limits remain unchanged. Full inference/fit belongs to #5.
+
+## Approved permission change
+
+[granite_server.cil](../policy/selinux/granite_server.cil) adds an opt-in process domain,
+`granite_server.process`, using the distribution's container and networking templates.
+Its only explicit device grant is `getattr open read write ioctl map` on character devices
+with type `xserver_misc_device_t`. Existing `container_t` is unchanged. The base template
+includes MCS constraints; the network template is not an egress firewall. Device identity
+and reachability are separately verified by the pinned-image check below. See [ADR 0001](adr/0001-project-gpu-selinux.md).
+
+Prerequisites already observed on the target: Fedora 44/x86_64, container-selinux
+2.251.0-1.fc44, SELinux policy 44.11-1.fc44, policycoreutils 3.11, Podman 5.8.7,
+crun 1.28, NVIDIA toolkit 1.19.1 and enforcing SELinux. The templates are supplied by
+container-selinux; udica installation is unnecessary. Verify them before an authorized installation:
+
+```bash
+getenforce
+rpm -q container-selinux selinux-policy-targeted policycoreutils
+sha256sum policy/selinux/granite_server.cil \
+  /usr/share/udica/templates/base_container.cil \
+  /usr/share/udica/templates/net_container.cil
+```
+
+Candidate validation performed before installation: the installed libsepol 3.11 parser
+accepted the candidate and both templates and rejected a deliberately malformed CIL input.
+Referenced types, attributes and character-device permissions resolve in the loaded policy;
+`granite_server.process` was absent at that checkpoint. The later authorized installation
+linked successfully; the runtime evidence below remains narrower than full inference proof.
+
+Reviewed input SHA-256 values (recheck before installation):
+
+| Input | SHA-256 |
+| --- | --- |
+| `granite_server.cil` | `603de717bf2ae6506a8a140eceef3f3d1345a1b37d11b8fd3038670222fabdb3` |
+| `base_container.cil` | `c95d8badacc674ace0d2fed4fbee4d28d2a92799b23fd5cc30cfb444ee8896b7` |
+| `net_container.cil` | `9af286e5e19e15cffaaf7b29c745c800ef94c03d90ee90e0e8e18edc2ebf8f01` |
+
+The administrator must first inspect the module inventory. An existing module with one of
+these names requires reconciliation; do not overwrite another project's modules or templates:
+
+```bash
+sudo semodule -lfull
+```
+
+After the exact-input approval and module reconciliation, this installation succeeded:
+
+```bash
+sudo semodule -i policy/selinux/granite_server.cil \
+  /usr/share/udica/templates/base_container.cil \
+  /usr/share/udica/templates/net_container.cil
+```
+
+This installs the project module and template modules, links the host policy and reloads it.
+The administrator should record which modules were already present and their versions before
+installation. No boolean, physical-device label, permissive domain or global enforcement change
+is part of this request. A link failure is a blocker; do not disable policy checks to proceed.
+
+## Bounded validation result and repetition
+
+The approved no-network CDI diagnostic passed. To repeat after an authorized change, use
+the project process label, default seccomp,
+read-only root, dropped capabilities, no-new-privileges, one CPU, 256 MiB RAM/no additional
+swap and 64 PIDs. Use the exact selected A6000 CDI UUID privately and compare the returned
+identity privately; publish only the stable device alias. The earlier diagnostic used an
+already-local vLLM image, not the #2 pin, so it established only the host access blocker.
+The pinned-image check below supplies later acquisition/access evidence; full inference remains #5. The successful
+diagnostic verified exactly the selected A6000, its supporting control/UVM/capability nodes,
+`granite_server.process` with MCS, `Seccomp: 2`, `NoNewPrivs: 1`, and zero effective capabilities.
+SELinux remained enforcing, both shared device booleans remained off, no fresh project AVC
+appeared, and the owned container was removed. No additional policy grant was needed.
+
+A separate cached-image internal-network HTTP diagnostic also passed: loopback publication
+worked, non-loopback publication failed, and external/mapped-host/host-address TCP attempts
+failed. The owned internal network had DNS disabled and no gateway; cleanup passed. This
+is sampled reachability evidence, not a claim about the unacquired pinned image or inference.
+
+Observe the process label and MCS categories externally and verify `Seccomp: 2` and
+`NoNewPrivs: 1`. Check the host audit for fresh denials. Require exactly the selected GPU;
+enumerate actual injected device nodes. Remove only the disposable project container and
+verify it is absent. Stop on failure and investigate; do not extend policy automatically.
+This diagnostic performs no inference and downloads no model weights.
+
+## Rollback after an authorized installation
+
+Stop project containers using the domain before removing its module:
+
+```bash
+sudo semodule -r granite_server
+```
+
+Do not remove `base_container` or `net_container` if they predated this change or are used by
+another policy. If this installation introduced them, the administrator may separately remove
+unused template modules after checking dependents. Recheck enforcing mode and the module
+inventory. Rollback removes the project grant; it does not make the unchanged launch feasible.
+
+## Approved desktop baseline for #4 verification
+
+The operator separately approved retaining the specific observed terminal process at 38 MiB.
+This is not a name-based exception for desktop applications. The launcher accepts an optional
+operator-supplied private JSON record containing `gpu`, `pid`, `starttime`, `exe` and `max_mib: 38`.
+It checks that exact identity and ceiling before launch and while serving; additional compute
+processes must belong to the owned container. Without that record, other compute processes refuse
+launch. No automatic baseline capture or unrelated-process stop is authorized. Keep concrete
+identifiers private and publish only sanitized occupancy.
+
+## Acquire, check, serve
+
+Use the observed Fedora 44/x86_64 toolchain above, Python 3, coreutils, iproute, NVIDIA driver
+615.71.09 and a rootless Podman store. CDI configuration must expose the selected A6000 UUID.
+Keep 80 GiB free on each filesystem holding state or the Podman store; runtime preflight requires
+48 GiB available RAM, eight CPUs and GPU free memory for the 0.80 allocation plus 6 GiB.
+Do not concurrently pull, prune or otherwise mutate the shared Podman store during acquisition
+or a run: growth since the recorded baseline is conservatively charged to this experiment.
+
+From the repository root, select the A6000 UUID privately, then acquire the immutable pins:
+
+```bash
+export GRANITE_STATE="$HOME/.local/share/granite-4"
+nvidia-smi --query-gpu=uuid,name --format=csv,noheader
+export GRANITE_GPU='<A6000-UUID>'
+python3 scripts/granite.py acquire --state "$GRANITE_STATE"
+```
+
+Before check/serve, provision the persistent cache below. Acquisition creates the private state
+and empty cache directory; serving refuses an ordinary directory or an incorrect mount.
+
+### Provision the bounded cache
+
+[ADR0002](adr/0002-bounded-persistent-cache.md) uses an exact 8 GiB preallocated ext4 image.
+Filesystem metadata reduces usable payload below 8 GiB. This needs host-admin authorization;
+containers remain rootless. Installed prerequisites: e2fsprogs, util-linux and Btrfs tools;
+the observed host has versions 1.47.3, 2.41.5 and 7.1 respectively. No quota enable or startup
+service is required. Reserve 8 GiB on the backing filesystem in addition to acquisition space.
+
+Stop all cache writers first. Verify state/cache are owned mode-0700 directories without
+symlinks, cache is empty and unmounted, and `/var/lib/granite-cache` does not exist. Refuse
+existing content rather than hiding or deleting it. Use the same operator shell and state:
+
+```bash
+GRANITE_UID=$(id -u)
+GRANITE_GID=$(id -g)
+sudo install -d -m 0700 /var/lib/granite-cache
+sudo touch /var/lib/granite-cache/cache.ext4
+sudo chmod 0600 /var/lib/granite-cache/cache.ext4
+sudo chattr +C /var/lib/granite-cache/cache.ext4
+sudo fallocate -l 8589934592 /var/lib/granite-cache/cache.ext4
+sudo mkfs.ext4 -m 0 -E nodiscard,lazy_itable_init=0,lazy_journal_init=0 /var/lib/granite-cache/cache.ext4
+sudo mount -t ext4 -o loop,nosuid,nodev /var/lib/granite-cache/cache.ext4 "$GRANITE_STATE/cache"
+sudo rmdir "$GRANITE_STATE/cache/lost+found"
+sudo chown "$GRANITE_UID:$GRANITE_GID" "$GRANITE_STATE/cache"
+chmod 700 "$GRANITE_STATE/cache"
+findmnt --json --mountpoint "$GRANITE_STATE/cache" -o TARGET,SOURCE,FSTYPE,FSROOT,OPTIONS
+sudo stat -c '%s %b %u %g %a' /var/lib/granite-cache/cache.ext4
+```
+
+Require image size 8589934592, allocated blocks times 512 at most that size, root ownership
+and mode 600. Set NOCOW before allocation on this Btrfs host; `nodiscard` preserves allocation.
+Do not snapshot/reflink this backing image while mounted or resize it. Its directory/file
+are outside state/store and inaccessible to the worker. Ext4 native labels permit Podman's
+private `:Z` relabel; no fixed mount context or policy grant is added. Executable cache mappings
+remain permitted for compilation; `nosuid,nodev`, NNP and capability removal remain required.
+
+After reboot, manually repeat only the mount command against the existing image; never reformat
+it. The launcher checks the exact ext4 root mount, loop device identity and 8 GiB device size,
+filesystem capacity, ownership/mode and mount options using unprivileged native observations.
+It charges the full backing allocation once, including invisible open-unlinked allocations.
+
+Rollback: stop the launcher and all cache writers, then `sudo umount "$GRANITE_STATE/cache"`
+without lazy/forced options. Verify the image no longer appears in `sudo losetup --list --json`.
+Retain the image for reuse; deleting it requires explicit data-disposal authority. Serving
+refuses the underlying unmounted directory. No automatic mount, quota or filesystem-wide change.
+
+```bash
+python3 scripts/granite.py check --state "$GRANITE_STATE" --gpu "$GRANITE_GPU"
+python3 scripts/granite.py serve --state "$GRANITE_STATE" --gpu "$GRANITE_GPU"
+```
+
+Acquisition verifies the image platform/digest and the model's 13 selected data files against
+revision metadata, sizes and content hashes. It excludes model repository Python code. Serving
+uses only those local files with network access restricted; it never pulls missing artifacts.
+`check` runs HTTP/device/resource diagnostics without loading weights. `serve` repeats that
+check, then starts the local model and reports readiness at `http://127.0.0.1:8000` with model alias
+`granite`. Ctrl-C stops/removes owned containers/networks; cache and logs remain for inspection.
+A ready endpoint is not an inference quality or fit result. Run #5's workload separately.
+
+Default preflight rejects other compute processes. Only for the separately approved desktop
+baseline, append `--desktop-baseline "$GRANITE_DESKTOP_BASELINE"` to check/serve; this variable
+must name the private, operator-reviewed record described above. Its values must come from the
+approved observation, not an automatic snapshot of whatever processes currently happen to run.
+Process restart, identity mismatch or usage above 38 MiB requires inspection, not a fresh exemption.
+
+The launcher creates private state, locks it, mounts model data read-only and preserves a bounded
+cache. Hard limits include 32 GiB RAM/no swap, eight CPUs of aggregate CPU-time quota, 1024 PIDs,
+private 4 GiB shared memory,
+1 GiB temporary space and 64 MiB runtime space. Disk scans monitor image/scratch 32 GiB, model
+20 GiB and logs/state 4 GiB, with total 64 GiB including the fixed 8 GiB cache backing.
+Cache has a finite filesystem bound even for unlinked open files; other disk limits are monitored
+stop conditions rather than quotas.
+GPU memory is monitored against 40 GiB; sampling can overshoot. Startup is bounded to 600 seconds,
+session to 3600 seconds, graceful stop to 30 seconds. Breaches, forced kill and cleanup failures
+are failures; no security/resource fallback occurs.
+
+Raw logs, process/device identities and refusal details stay under private state. Inspect the
+reported error path before retrying. `logs/resources.json` records the exact owned container/network
+names; after SIGKILL/power loss, inspect those names and stop/remove only verified owned resources.
+Never use a broad prune or stop unrelated processes. No automatic restart/recovery is provided.
+The optional desktop record is outside the container; model/cache are the only host data mounts.
+
+Run the focused static checks without GPU or network use:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+git diff --check
+```
+
+## Pinned live evidence (2026-11-13)
+
+Acquisition at `206c5152122a4259f05caeb66f4f06fca703649f` verified the exact #2 image digest,
+linux/amd64 and all 13 model files (17,592,969,047 file bytes). Check passed at
+`2d4d5f1a77e6bcebd274bac6e7f710e4f60a432e` in 15.962 seconds, without loading model weights.
+Observed selected device `GPU-A`: A6000; six CDI nodes included its NVIDIA data node,
+control/UVM nodes and selected-PCI DRM card/render nodes. Exact identities remain private.
+Observed MCS/project process type, Seccomp 2, NNP 1, zero effective capabilities, declared cgroup
+limits and readonly/bounded mounts matched. Loopback HTTP worked; non-loopback ingress and
+external/mapped-host/host-address TCP attempts failed. Graceful cleanup removed owned resources. The finite ext4 cache passed native host attestation
+and a confined create/read/unlink/executable-mmap probe with private labeling. A separate64MiB
+filesystem refused open-unlinked writes at55,574,528 bytes in0.154 seconds; all probe artifacts
+were removed after normal unmount, while production cache/backing were retained.
+SELinux stayed enforcing; both shared device booleans stayed off; no recent project AVC appeared.
+The approved `desktop-process-A` baseline stayed at 38 MiB; no new competing compute work appeared.
+Default seccomp SHA-256: `2598b3b98e6970f37f917e210202fa8976aefcd99abf8955803a6e35bba17eb4`.
+
+Earlier pinned checks failed honestly: unavailable cpuset delegation (15.061 s), unsupported
+NVIDIA minor query plus forced HTTP stop (45.579 s), then GET 501 from an incorrect diagnostic
+handler (45.865 s). Corrected CPU quota use, supported driver metadata, private stdout-error
+capture and explicit HTTP handler/SIGTERM handling resolved these causes; no extra grants or
+resource increases were applied. Each failed attempt removed its owned container/network.
+Full inference, fit, cold/warm timing, throughput and workload outputs remain unrun and owned by #5.
+
+The first pinned-image check exposed unavailable rootless `cpuset` delegation. The launcher uses
+the supported eight-CPU time quota and verifies `cpu.max`; it does not require core affinity.
