@@ -61,8 +61,9 @@ No tools, files, secrets, user documents or external URLs enter the prompts.
   output stays within 4096. Do not assume the model must use its entire output cap.
 - **F-context:** freeze one exact 3840-token rendered input using the pinned tokenizer and
   deterministic synthetic padding; output cap 256. Freeze a second payload whose rendered
-  input plus requested output exceeds 4096 by one token. If exact construction or candidate
-  admission semantics cannot be established, report the boundary case incomplete, not passed.
+  input is 4097 tokens, with output cap 1 and no truncation requested: this is rejection-only,
+  not an allowed generation workload. Confirm candidate admission before executing it. If exact
+  construction or rejection cannot be established, report this case incomplete, not passed.
 - **F-invalid:** send one each: malformed JSON bytes `{`, missing `messages`, empty `messages`,
   unknown model alias `invalid-test-model`, and `max_tokens: 0`. Send each separately; fix
   exact bodies in #5 without changing these semantics. Rejections are expected, not crashes.
@@ -81,17 +82,22 @@ cancellation and failure cases out of timed performance samples. Time and report
 separately. For timed traffic use F-short and F-long, each in streaming and nonstreaming mode:
 at each concurrency, issue five of each of these four classes (20 requests total), respecting
 #2's two warmups before timing. Alternate classes deterministically and freeze the order.
-Concurrency 2 means two active client requests, not two completions per request.
+Concurrency 2 means two active client requests, not two completions per request. The pinned
+[vLLM output allowance](https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/entrypoints/serve/utils/api_utils.py)
+can clamp requested output to remaining context; combined requested length alone is not a
+rejection test. Normal admitted fixtures keep input at most 3840 and output cap at most 256.
+The [input-length check](https://github.com/vllm-project/vllm/blob/v0.32.0/vllm/renderers/params.py)
+is the boundary tested by the rejection-only 4097-token prompt.
 
 | ID | Bounded action | Expected outcome and case cleanup |
 | --- | --- | --- |
 | W-start | Launch with a fresh project compilation cache; after readiness send F-short. Stop, retain that cache and restart for the warm case. Acquired weights and OS file cache remain warm as #2 defines. | Ready and first nonempty completion within startup deadline; record both times and cache class separately. Stop old workers before restart; never share a live cache writer across arms. |
 | W-chat | F-short and F-long in nonstreaming and streaming modes, at concurrency 1 then 2. | Successful chat response with one completion; stream has consumable text chunks and terminal completion, without protocol error or duplicate completion. Observe nonempty text, finish reason, output token count and deadlines; do not score literary correctness or exact token equality. Close each response/stream. |
-| W-context | F-context valid boundary, then over-limit payload, one request at a time. | Valid boundary succeeds within envelope; over-limit request returns a client error before generation, not silent truncation or allocation failure. Record template counts and actual admission behavior. Close responses and send F-short to prove continued service. |
+| W-context | F-context valid boundary, then rejection-only over-context prompt, one request at a time. | Valid boundary succeeds within envelope; the 4097-token input returns a client error before generation, without truncation or allocation failure. Record template counts and actual admission behavior. Close responses and send F-short to prove continued service. |
 | W-invalid | Each F-invalid case, sequentially. | Bounded client-error response, no process exit or prompt echo in public results. Exact error wording is not a contract. Close responses; a subsequent F-short succeeds. |
 | W-cancel | Send streaming F-long; close client connection after first text chunk. If it completes first, report cancellation unexercised. | Worker request ends and releases its active slot within request deadline; a following F-short succeeds. Capture abort/completion status and outstanding request count where observable. Never mistake client disconnect alone for server cancellation proof. |
 | W-stop | With one streaming F-long active, request graceful container stop; then restart with the same pinned model/cache and send F-short. | Stop within 30 s, stream terminates cleanly or with recorded interruption, old container workers disappear and its device allocation is released; restart succeeds within startup bound. If graceful stop fails, stop the trial, terminate only project container workers and record failure. |
-| W-resource | Exercise a preflight refusal using a synthetic insufficient-capacity observation against #2's required minima; do not allocate to manufacture exhaustion. For a naturally occurring bounded container/GPU allocation or disk-space error, run the recovery path below. | Preflight refuses launch with operation/resource/remedy and no allocations. Label synthetic input explicitly. Actual resource errors stop the trial and preserve the failure; after cleanup and restored prerequisites, at most one restart plus F-short proves recovery. If no actual error occurs, report runtime resource-error recovery unexercised; synthetic refusal does not prove allocator recovery. |
+| W-resource | Exercise a preflight refusal using a synthetic insufficient-capacity observation against #2's required minima; do not allocate to manufacture exhaustion. For a naturally occurring bounded container/GPU allocation or disk-space error, run the recovery path below. | Preflight refuses launch with operation/resource/remedy and no allocations. Label synthetic input explicitly. The mandatory synthetic refusal completes this case on a healthy run; runtime recovery is conditional diagnostic evidence. Actual resource errors stop the trial and preserve the failure; after cleanup and restored prerequisites, at most one restart plus F-short proves recovery. If no actual error occurs, report runtime resource-error recovery unexercised; this limits recovery claims but does not invalidate a clean trial. Synthetic refusal does not prove allocator recovery. |
 
 For runtime resource errors, stop admission, close active clients and stop only the project
 container. Record exit status, resource class and bounded outside-process observations; a
@@ -99,7 +105,8 @@ container OOM is a failed trial, never a successful stress test. Restore prerequ
 removing unrelated data; rerun the preflight before the single recovery attempt. A second error,
 missing telemetry or unmet prerequisite ends the session as failed/incomplete. No host OOM,
 GPU fault injection, stress loop, oversized allocations, disk filling or host-wide cache purge.
-An unexercised required case prevents a complete passing workload result; #5/#10 must retain
+The conditional recovery observation does not turn its failed trial into a pass. Other
+unexercised required cases prevent a complete passing workload result; #5/#10 must retain
 that limitation rather than claim comprehensive recovery or cancellation coverage.
 
 ## Evidence, stop conditions and cleanup
