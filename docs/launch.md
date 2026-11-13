@@ -1,6 +1,8 @@
-# Launch prerequisite: approved SELinux policy
+# Pinned acquisition and confined GPU launch
 
-This is the installed prerequisite for #4, **not a completed acquisition/launch package**.
+The stdlib `scripts/granite.py` command separates online acquisition from offline diagnostics
+and foreground serving. Full inference/fit and workload measurements belong to #5.
+
 On 2026-11-13 the operator approved the exact three hashed CIL inputs below; installation
 and the bounded no-network diagnostic succeeded. These commands document that prerequisite;
 another installation requires its own host-admin decision and module reconciliation. #2's
@@ -103,9 +105,67 @@ inventory. Rollback removes the project grant; it does not make the unchanged la
 ## Approved desktop baseline for #4 verification
 
 The operator separately approved retaining the specific observed terminal process at 38 MiB.
-This is not a name-based exception for desktop applications. The launch design accepts an optional
+This is not a name-based exception for desktop applications. The launcher accepts an optional
 operator-supplied private JSON record containing `gpu`, `pid`, `starttime`, `exe` and `max_mib: 38`.
 It checks that exact identity and ceiling before launch and while serving; additional compute
 processes must belong to the owned container. Without that record, other compute processes refuse
 launch. No automatic baseline capture or unrelated-process stop is authorized. Keep concrete
-identifiers private and publish only sanitized occupancy. The package remains unimplemented here.
+identifiers private and publish only sanitized occupancy.
+
+## Acquire, check, serve
+
+Use the observed Fedora 44/x86_64 toolchain above, Python 3, coreutils, iproute, NVIDIA driver
+615.71.09 and a rootless Podman store. CDI configuration must expose the selected A6000 UUID.
+Keep 80 GiB free on each filesystem holding state or the Podman store; runtime preflight requires
+48 GiB available RAM, eight CPUs and GPU free memory for the 0.80 allocation plus 6 GiB.
+Do not concurrently pull, prune or otherwise mutate the shared Podman store during acquisition
+or a run: growth since the recorded baseline is conservatively charged to this experiment.
+
+From the repository root, select the A6000 UUID privately, then acquire the immutable pins:
+
+```bash
+export GRANITE_STATE="$HOME/.local/share/granite-4"
+nvidia-smi --query-gpu=uuid,name --format=csv,noheader
+export GRANITE_GPU='<A6000-UUID>'
+python3 scripts/granite.py acquire --state "$GRANITE_STATE"
+python3 scripts/granite.py check --state "$GRANITE_STATE" --gpu "$GRANITE_GPU"
+python3 scripts/granite.py serve --state "$GRANITE_STATE" --gpu "$GRANITE_GPU"
+```
+
+Acquisition verifies the image platform/digest and the model's 13 selected data files against
+revision metadata, sizes and content hashes. It excludes model repository Python code. Serving
+uses only those local files with network access restricted; it never pulls missing artifacts.
+`check` runs HTTP/device/resource diagnostics without loading weights. `serve` repeats that
+check, then starts the local model and reports readiness at `http://127.0.0.1:8000` with model alias
+`granite`. Ctrl-C stops/removes owned containers/networks; cache and logs remain for inspection.
+A ready endpoint is not an inference quality or fit result. Run #5's workload separately.
+
+Default preflight rejects other compute processes. Only for the separately approved desktop
+baseline, append `--desktop-baseline "$GRANITE_DESKTOP_BASELINE"` to check/serve; this variable
+must name the private, operator-reviewed record described above. Its values must come from the
+approved observation, not an automatic snapshot of whatever processes currently happen to run.
+Process restart, identity mismatch or usage above 38 MiB requires inspection, not a fresh exemption.
+
+The launcher creates private state, locks it, mounts model data read-only and preserves a bounded
+cache. Hard limits include 32 GiB RAM/no swap, eight CPUs, 1024 PIDs, private 4 GiB shared memory,
+1 GiB temporary space and 64 MiB runtime space. Disk scans monitor image/scratch 32 GiB, model
+20 GiB, cache 8 GiB, logs/state 4 GiB, total 64 GiB; these are stop conditions, not disk quotas.
+GPU memory is monitored against 40 GiB; sampling can overshoot. Startup is bounded to 600 seconds,
+session to 3600 seconds, graceful stop to 30 seconds. Breaches, forced kill and cleanup failures
+are failures; no security/resource fallback occurs.
+
+Raw logs, process/device identities and refusal details stay under private state. Inspect the
+reported error path before retrying. `logs/resources.json` records the exact owned container/network
+names; after SIGKILL/power loss, inspect those names and stop/remove only verified owned resources.
+Never use a broad prune or stop unrelated processes. No automatic restart/recovery is provided.
+The optional desktop record is outside the container; model/cache are the only host data mounts.
+
+Run the focused static checks without GPU or network use:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+git diff --check
+```
+
+Pinned-image live acquisition/check evidence is recorded after executing these commands against
+committed source; cached-image prerequisite evidence above does not substitute for that result.
