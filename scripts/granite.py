@@ -79,7 +79,7 @@ def selected(meta):
     require(sum(x['size'] for x in items) <= 20 * GIB, 'acquire: model exceeds 20 GiB')
     return items
 
-def verify(path, item):
+def verify(path, item, deadline=None):
     require(path.is_file() and not path.is_symlink(), 'verify: missing or unsafe model file')
     size = item['size']
     require(path.stat().st_size == size, 'verify: file size mismatch')
@@ -88,6 +88,8 @@ def verify(path, item):
         digest.update(f'blob {size}\0'.encode())
     with path.open('rb') as source:
         for block in iter(lambda: source.read(1024 * 1024), b''):
+            if deadline is not None:
+                remaining(deadline)
             digest.update(block)
     expected = item['lfs']['sha256'] if 'lfs' in item else item['blobId']
     require(digest.hexdigest() == expected, 'verify: content hash mismatch')
@@ -157,8 +159,8 @@ class Budget:
             require(size <= limit * GIB, f'disk: {limit} GiB bucket exceeded; inspect private state')
         require(sum(buckets) <= 64 * GIB, 'disk: 64 GiB total exceeded; inspect private state')
 
-def image():
-    value = json.loads(run('podman', 'image', 'inspect', IMAGE))[0]
+def image(deadline=None):
+    value = json.loads(run('podman', 'image', 'inspect', IMAGE, deadline=deadline))[0]
     require(value['Architecture'] == 'amd64' and value['Os'] == 'linux'
             and IMAGE in value['RepoDigests'], 'verify: image digest/platform mismatch')
 
@@ -243,8 +245,8 @@ def gpu_processes(gpu, baseline=None, group=None, deadline=None):
                 and 0 <= float(usage) <= baseline['max_mib'],
                 'GPU: approved desktop identity changed or exceeds 38 MiB; stop and inspect')
 
-def preflight(state, gpu, baseline=None):
-    info = json.loads(run('podman', 'info', '--format=json'))
+def preflight(state, gpu, baseline=None, deadline=None):
+    info = json.loads(run('podman', 'info', '--format=json', deadline=deadline))
     host = info['host']
     security = host['security']
     require(os.getuid() != 0 and security['rootless'] and not host['serviceIsRemote'],
@@ -254,17 +256,17 @@ def preflight(state, gpu, baseline=None):
             and {'cpu', 'memory', 'pids'} <= set(host['cgroupControllers']),
             'preflight: missing cgroup v2 resource controllers')
     require(security['seccompEnabled'] and security['selinuxEnabled']
-            and run('getenforce') == 'Enforcing', 'preflight: enforcing SELinux/seccomp required')
+            and run('getenforce', deadline=deadline) == 'Enforcing', 'preflight: enforcing SELinux/seccomp required')
     memory = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
     capacity(len(os.sched_getaffinity(0)), int(memory['MemAvailable'].split()[0]) * 1024)
-    total, free, used = gpu_state(gpu)
+    total, free, used = gpu_state(gpu, deadline)
     require(free >= total * .8 + 6 * GIB, 'preflight: insufficient GPU memory')
-    gpu_processes(gpu, baseline)
-    image()
+    gpu_processes(gpu, baseline, deadline=deadline)
+    image(deadline)
     require({p.name for p in (state / 'model').iterdir()} == FILES,
             'verify: unexpected or missing model directory entry')
     for item in selected(json.loads((state / 'metadata.json').read_text())):
-        verify(state / 'model' / item['rfilename'], item)
+        verify(state / 'model' / item['rfilename'], item, deadline)
     return info
 
 def argv(state, gpu, name, network):
@@ -444,10 +446,30 @@ def cleanup(name, network):
             signal.signal(sig, handler)
     require(not errors, 'cleanup failed: ' + '; '.join(errors))
 
-def launch(state, gpu, budget, diagnostic, baseline=None):
+def active(name, observation, gpu, budget, baseline, deadline):
+    budget.check(deadline=deadline)
+    used = gpu_state(gpu, deadline)[2]
+    group = observation['GraniteProof']['cgroup']
+    root = Path('/sys/fs/cgroup') / group.lstrip('/')
+    sample = {'gpu_sample_bytes': used,
+              'memory_current_bytes': int((root / 'memory.current').read_text()),
+              'memory_peak_bytes': int((root / 'memory.peak').read_text())}
+    peaks = observation.setdefault('GranitePeaks', {})
+    for key, value in sample.items():
+        peaks[key] = max(value, peaks.get(key, 0))
+    require(used <= 40 * GIB, 'runtime: observed GPU memory exceeds 40 GiB')
+    gpu_processes(gpu, baseline, group, deadline)
+    events = dict(line.split() for line in (root / 'memory.events').read_text().splitlines())
+    require(events['oom_kill'] == '0', 'runtime: cgroup OOM; stop failed trial')
+    current = json.loads(run('podman', 'inspect', name, deadline=deadline))[0]['State']
+    require(current['Running'] and not current['OOMKilled'], 'runtime: server stopped/OOM')
+    return sample
+
+def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session_deadline=None):
     token = uuid.uuid4().hex
     name, network = 'granite-' + token, 'granite-net-' + token
     require(not exists(name) and not exists(network, True), 'launch: resource name exists; refuse')
+    observation = {}
     try:
         (state / 'logs' / 'resources.json').write_text(json.dumps([name, network]))
         run('podman', 'network', 'create', '--internal', '--disable-dns', network)
@@ -465,24 +487,16 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
                      '{"max_new_tokens":256}', '--disable-log-requests', '--disable-uvicorn-access-log']
         run(*args)
         start = time.monotonic()
-        deadline = start + (30 if diagnostic else 600)
+        deadline = min(start + (30 if diagnostic else 600), session_deadline or float('inf'))
         run('podman', 'start', name, deadline=deadline)
         observation = observe(name, gpu, deadline)
         remaining(deadline)
         (state / 'logs' / 'inspect.json').write_text(json.dumps(observation))
         ready = False
         while time.monotonic() - start < 3600:
-            active_deadline = deadline if not ready else start + 3600
-            budget.check(deadline=active_deadline)
-            require(gpu_state(gpu, active_deadline)[2] <= 40 * GIB,
-                    'runtime: observed GPU memory exceeds 40 GiB')
-            group = observation['GraniteProof']['cgroup']
-            gpu_processes(gpu, baseline, group, active_deadline)
-            events = Path('/sys/fs/cgroup') / group.lstrip('/') / 'memory.events'
-            require(dict(line.split() for line in events.read_text().splitlines())['oom_kill'] == '0',
-                    'runtime: cgroup OOM; stop failed trial')
-            current = json.loads(run('podman', 'inspect', name, deadline=active_deadline))[0]['State']
-            require(current['Running'] and not current['OOMKilled'], 'runtime: server stopped/OOM')
+            active_deadline = deadline if not ready else min(
+                start + 3600, session_deadline or float('inf'))
+            active(name, observation, gpu, budget, baseline, active_deadline)
             if not ready:
                 remaining(deadline)
                 try:
@@ -494,6 +508,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
                     network_check(name, network, deadline)
                     remaining(deadline)
                     print('Diagnostic passed.' if diagnostic else 'Ready: http://127.0.0.1:8000')
+                    if workload:
+                        return workload(name, observation, start, deadline)
             if diagnostic and ready:
                 return
             time.sleep(1)
@@ -501,7 +517,11 @@ def launch(state, gpu, budget, diagnostic, baseline=None):
     finally:
         original = sys.exc_info()[1]
         try:
+            (state / 'logs' / 'runtime-peaks.json').write_text(
+                json.dumps(observation.get('GranitePeaks', {})))
+        finally:
             cleanup(name, network)
+        try:
             require(not reachable('127.0.0.1', 8000), 'cleanup: endpoint remains; inspect host')
         except Exception as error:
             raise RuntimeError(f'{original or "run ended"}; {error}') from error
