@@ -1,19 +1,17 @@
 # Pinned acquisition and confined GPU launch (#4)
 
-## Authority and status
+## Authority and ownership
 
 Frozen #4 `WORK:SCOPE` q4-862fd2c0 governs C1–C6/exclusions and fixed M denominator 250.
-Installed policy/cached-image probes prove only host access. The private plan records branch/checks.
-
-## Outcome and ownership
-
-`scripts/granite.py` owns acquisition/check/serving; `tests/test_granite.py` owns boundary tests.
-`docs/launch.md` owns commands, linked by README. No migration; ADR0001/policy grant is unchanged.
-
-`python3 scripts/granite.py {acquire,check,serve} --state PATH [--gpu GPU-UUID]`
-requires private state and, for check/serve, an exact GPU UUID; no index/all/fallback/passthrough.
-Online credential-free acquire is separate from offline HTTP/device/resource check (no weights
-loaded). Serve repeats check then supervises foreground; SIGINT/SIGTERM clean owned resources.
+The operator approved the prior 840-line design exception and the specific 38 MiB desktop baseline.
+The installed policy/cached-image probes establish only host access. ADR0001's grant is unchanged.
+`scripts/granite.py` owns acquisition/check/serving; `tests/test_granite.py` owns boundary tests;
+`docs/launch.md` owns commands, linked by README. No callers/migration; the plan stays private.
+CLI: `python3 scripts/granite.py {acquire,check,serve} --state PATH [--gpu GPU-UUID]`.
+Optional `--desktop-baseline PATH` consumes the operator-supplied private JSON only; no auto-capture.
+Use private state and an exact GPU UUID for check/serve; no index/all/fallback/passthrough.
+Acquire is online and credential-free. Offline check uses an HTTP/device/resource diagnostic,
+without loading weights. Serve repeats check then supervises foreground with SIGINT/SIGTERM cleanup.
 Publish loopback port 8000, alias `granite`; a busy port fails.
 
 ## Global Constraints
@@ -28,90 +26,78 @@ No rootful, privileged, label-disable, permissive, boolean or automatic policy-g
 
 ## Acquisition and state (C1, C4)
 
-Record rootless-store allocated bytes before pulling the immutable linux/amd64 child digest;
-verify local digest/platform. HTTPS model metadata must match the revision and 13 allowed root
-config/tokenizer/safetensors names. Reject duplicate/missing names, malformed size/hash and totals
-over 20 GiB. Repository Python code is excluded.
-Download to owned partial files with size and LFS SHA-256/Git-blob SHA-1 checks before atomic
-replacement. Persist validated metadata and reverify offline. No credentials enter serving;
-digest checks establish identity, not publisher authenticity.
+Record rootless-store allocated bytes before pulling; verify immutable linux/amd64 digest/platform.
+HTTPS metadata must match the model revision and 13 allowed config/tokenizer/safetensors files;
+reject missing/duplicate names, invalid sizes/hashes and totals above 20 GiB. Exclude repository code.
+Download to partial files; verify size and LFS SHA-256/Git-blob SHA-1 before atomic replacement.
+Persist validated metadata and reverify offline. Identity checks do not establish publisher trust.
+State is UID-owned/mode-0700/non-symlink/exclusively locked; reject existing symlinks. Only readonly
+model and persistent cache enter the container. Raw evidence stays private; publish sanitized results.
+Require 80 GiB free per affected filesystem before acquisition; monitor store growth/pull scratch
+32 GiB, model 20, cache 8, logs/state 4, total 64. Charge shared-store growth conservatively;
+no concurrent shared-store mutation or pruning. Disk scans detect/stop breaches, with overshoot;
+they are not quotas. Preserve cache for #5. Retain at most 64 KiB command-refusal stderr privately,
+identify its path in actionable errors, and preserve the primary failure when cleanup also fails.
 
-State is UID-owned, mode 0700, non-symlink, exclusively locked. Only readonly model and persistent
-cache enter the container; reject existing state symlinks. Raw evidence stays private; published
-identities are sanitized. Cache persists for #5 cold/warm cases.
-Monitor allocated disk usage: image/store growth 32 GiB, model 20 GiB,
-cache 8 GiB, logs/state 4 GiB, total 64 GiB. Pull scratch belongs to the image bucket.
-Require 80 GiB free on affected store/state filesystems before acquisition. Charge shared-store
-growth conservatively; operator must not concurrently mutate the shared store during a run.
-Disk scans detect/stop breaches with possible overshoot; they are not quotas. No shared-store pruning.
+## Runtime boundaries (C2–C4)
 
-## Runtime boundaries (C2, C3, C4)
-
-Require 48 GiB MemAvailable, eight CPUs, delegated cpu/memory/pids v2, enforcing SELinux/seccomp,
-and the selected idle A6000 with free memory covering its 0.80 allocation plus 6 GiB.
-Use one UUID CDI device, private IPC/PID/cgroup, 32 GiB RAM/no swap, 8 CPU quota/affinity,
-1024 PIDs, 4 GiB shared memory, readonly root, dropped capabilities and NNP.
-Ignore image-declared volumes; disable automatic writable root tmpfs and declare writable
-/dev/shm (4 GiB), /tmp (1 GiB) and /run (64 MiB). Cache and model use private SELinux relabeling, no broad mounts.
-Offline/cache environment is literal; disable HTTP proxy inheritance and vLLM plugin discovery.
-
-Create one owned internal bridge network with DNS disabled, no host aliases, and no gateway.
-Publish only loopback; do not use default pasta egress. A diagnostic proves loopback HTTP,
-refused non-loopback publication, and failed external/mapped-host/host-address TCP attempts
-against a controlled listening host sentinel. Structural route/network checks complement these
-samples; they do not claim to exhaust every packet path. Verify selected UUID inside the
-container, enumerate injected device nodes, and compare GPU node device numbers to the host.
-Observe process label/MCS, NNP, capabilities, seccomp and actual cgroup limit files externally;
-container-only assertions do not establish confinement. Recheck the serving process likewise.
-
-Use vLLM v0.32.0, local model/tokenizer, BF16, FLASH_ATTN FA2, tensor parallel 1,
-context 4096, batched tokens 4096, sequences 2, GPU utilization 0.80 and max output 256.
-No reasoning parser, remote code, repository plugin or CPU offload. Client concurrency and
-120-second request deadlines remain #5's bounded workload responsibility, not an API tenancy claim.
-Readiness is bounded to 600 seconds, GPU observation to 40 GiB, session to 3600 seconds.
-Exit/OOM/breach stops the run; stop allows 30 seconds and forced kill is failure. Retain cache
-and bounded logs. Verify container/network removal and endpoint closure; cleanup failure blocks retry.
+Require 48 GiB MemAvailable, eight CPUs, delegated cpu/memory/pids v2 and enforcing SELinux/seccomp;
+the A6000 needs free memory covering its 0.80 allocation plus 6 GiB. Use one UUID CDI device,
+private IPC/PID/cgroup, RAM 32 GiB/no swap, CPU quota/affinity 8, PIDs 1024, shm 4 GiB,
+readonly root, dropped capabilities and NNP. Ignore image volumes; explicitly bound writable
+/dev/shm to 4 GiB, /tmp to 1 GiB and /run to 64 MiB. Model/cache use private SELinux relabeling.
+Default GPU occupancy is zero other compute processes. The sole approved exception is the recorded
+terminal baseline, matched by UUID/PID/starttime/executable and capped at 38 MiB. Before launch and
+during supervision, require each process to be that exact baseline or in the owned container cgroup;
+identity reuse, memory growth and additional workloads fail. Never stop unrelated processes.
+Literal offline/cache settings disable proxy inheritance and plugin discovery; no broad host mounts.
+Create an internal IPv4 bridge without DNS, aliases or gateway; publish only loopback. Prove
+loopback HTTP, refused non-loopback publication and failed external/mapped-host/host-address TCP
+against a host sentinel, corroborated by network structure; samples do not exhaust packet paths.
+Inspect post-CDI OCI linux.devices, enumerate those device nodes inside the container, compare
+host/OCI device numbers, selected UUID/minor and DRM sysfs PCI identity. Observe MCS/type, NNP,
+capabilities, seccomp and actual cgroup limits externally; repeat for the serving process.
+Use vLLM 0.32.0/local tokenizer/BF16/FLASH_ATTN FA2/TP1, context and batch 4096, sequences 2,
+GPU utilization 0.80/output 256; no parser, remote code, plugin or CPU offload. #5 owns client
+concurrency/request deadlines. Start the 600-second readiness clock immediately before Podman start;
+observations count against it. Monitor GPU 40 GiB/session 3600 seconds; exit/OOM/breach fails.
+Stop allows 30 seconds; forced kill fails. Before mutation, verify unique per-run names absent;
+put creation inside cleanup scope. Reconcile uncertain creation by exact-name cleanup, independently
+attempt stop/removal/verification, and never remove preexisting resources. Catchable interrupts
+clean owned state; failed cleanup requires operator inspection before retry. Retain cache/logs.
 
 ## Failure model
 
-- Actors and deployments: trusted local operator on the observed Fedora host; hostile local API
-  input and compromised inference workers; public registry/model services are supply-chain inputs.
-- Invariants and assets at stake: host credentials/files, other GPUs/workloads, acquired identities,
-  confinement, host availability, bounded private logs and truthful pass/fail evidence.
-- Accepted failure classes: GPU-driver/kernel bugs and trusted same-UID/operator/admin compromise
-  are outside prevention claims; scan-latency disk/GPU overshoot is detected, stopped and reported,
-  not a hard quota; SIGKILL/power failure can leave owned state needing explicit inspection;
-  shared-store concurrent mutation violates the stated single-operator acquisition prerequisite.
-- Covered elsewhere: executable inference/fit, 120-second requests, cold/warm cases and model-output
-  quality by #5/#3; syscall inventory #6/#7; custom seccomp/enforcement #8/#9; paired regression #10;
-  complete maintenance/installation guide #11; pin/envelope changes #2/operator. None is claimed passed.
+- Actors/deployments: trusted local operator on the observed Fedora host; hostile local API input
+  and compromised workers; registry/model services supply artifacts.
+- Assets/invariants: host files/credentials, other GPUs/workloads, pinned identities, confinement,
+  availability, bounded private evidence and truthful outcomes.
+- Accepted classes: kernel/driver bugs and trusted same-UID/operator/admin compromise are outside
+  prevention; disk/GPU scan overshoot is detected/stopped, not hard-capped; SIGKILL/power loss needs
+  manual inspection; concurrent shared-store mutation violates the stated prerequisite.
+- Covered elsewhere: #3/#5 inference/fit, requests, cold/warm/output cases; #6/#7 syscall inventory;
+  #8/#9 custom seccomp/enforcement; #10 paired regression; #11 full operations guide; #2/operator pins.
 
 ## Threat model
 
-- Added boundaries: HTTPS metadata/files into private state; operator UUID/path into subprocess
-  arguments; acquired artifacts into a container; container into GPU/filesystem/network/cgroups.
-  Widened boundary: only ADR 0001's approved process-domain device grant, already installed.
-- Actors and trust: operator, host kernel/runtime/driver, TLS roots and upstream artifact publishers
-  are trusted. Inference workers and local API inputs are untrusted; local clients share an API.
-- Controls: exact metadata allowlist/hash/size, argv without shell, owned private state/lock,
-  read-only verified model, one CDI UUID, minimal mounts/caps, enforcing domain/default seccomp,
-  internal no-gateway network, loopback ingress, hard cgroup limits and monitored disk/GPU bounds.
-  Failure details stay private; errors identify the failed operation and required inspection.
-- Out of scope: authenticating local users, GPU-driver exploit prevention, signature trust roots,
-  remote exposure and orchestration. Those are excluded by #1/operator, not hidden guarantees.
+- Added boundaries: HTTPS→state, CLI path/UUID→argv, artifacts→container, container→devices/files/
+  network/cgroups. Widened boundary: only ADR0001's approved, installed process-device grant.
+- Trust: operator/kernel/runtime/driver/TLS roots/upstream publishers are trusted; workers/API input
+  are untrusted. Local clients share the API; hostile same-UID naming races are not promised against.
+- Controls: exact allowlist/hash/size, argv without shell, private locked state, readonly model,
+  UUID/OCI/PCI checks, minimal mounts/caps, enforcing domain/default seccomp, internal network,
+  loopback ingress, hard cgroups and monitored disk/GPU. Failure details remain private.
+- Out of scope: local-user authentication, driver exploit prevention, signature trust roots,
+  remote exposure and orchestration, as excluded by #1/operator.
 
 ## AI surface and validation
 
-AI-SPEC: the local experiment operator explicitly starts the pinned server; synthetic chat inputs
-produce bounded chat text using only acquired model/tokenizer/template data. Tools, retrieval,
-remote code and external downloads are disallowed. Failure stops the run; no model/device fallback.
-Budgets are the unchanged #2 envelope; successful launch/access and honest readiness status are
-#4's signal. A ready server is not an inference/evaluation pass.
-Severity-5 privacy/tool/egress modes are covered by offline/mount/network diagnostics; severity-4
-wrong identity/backend/budget modes by identity, CLI and cgroup checks. #3's F-short, F-context,
-F-invalid and W-resource/W-stop specify happy, ambiguous/invalid, expensive and recovery cases;
-#5 materializes them. Unsafe instructions, stale/conflicting data and model-output judgments
-introduce no new tools/retrieval or normative refusal requirement here; no self-grading model.
-Focused tests exercise malformed metadata, wrong digest/size, partial writes, unsafe paths,
-insufficient capacity, offline argv and boundary failures. Live `acquire` then `check` proves
-candidate access on the target; final artifacts distinguish that from #5's unrun full inference.
+AI-SPEC: the local operator starts the pinned server; synthetic chat produces bounded text using
+only acquired model/tokenizer/template. No tools/retrieval/remote code/downloads; failure stops,
+without fallback. #2's budgets apply; #4 succeeds on launch/access evidence, not inference quality.
+Severity-5 privacy/tool/egress modes use mount/offline/network checks; severity-4 identity/backend/
+budget modes use pin/CLI/cgroup checks. #3's F-short/F-context/F-invalid/W-resource/W-stop cover
+happy, ambiguous/invalid, expensive/recovery cases; #5 materializes them. Unsafe/stale/conflicting
+inputs introduce no new tool/retrieval or refusal requirement; no self-grading model is used.
+Focused boundary tests and live acquire/check cover #4; commit guarded source before live proof,
+record the tested HEAD, and keep #5's unrun fit/workload evidence distinct.

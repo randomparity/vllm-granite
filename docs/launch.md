@@ -99,3 +99,13 @@ Do not remove `base_container` or `net_container` if they predated this change o
 another policy. If this installation introduced them, the administrator may separately remove
 unused template modules after checking dependents. Recheck enforcing mode and the module
 inventory. Rollback removes the project grant; it does not make the unchanged launch feasible.
+
+## Approved desktop baseline for #4 verification
+
+The operator separately approved retaining the specific observed terminal process at 38 MiB.
+This is not a name-based exception for desktop applications. The launch design accepts an optional
+operator-supplied private JSON record containing `gpu`, `pid`, `starttime`, `exe` and `max_mib: 38`.
+It checks that exact identity and ceiling before launch and while serving; additional compute
+processes must belong to the owned container. Without that record, other compute processes refuse
+launch. No automatic baseline capture or unrelated-process stop is authorized. Keep concrete
+identifiers private and publish only sanitized occupancy. The package remains unimplemented here.
