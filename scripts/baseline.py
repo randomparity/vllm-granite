@@ -210,6 +210,9 @@ class Client:
         self.sock = None
         self.response = None
         self.closed = threading.Event()
+        self.timer = threading.Timer(seconds(deadline), self.close)
+        self.timer.daemon = True
+        self.timer.start()
 
     def check(self):
         g.require(not self.closed.is_set(), 'request: client cancelled')
@@ -218,6 +221,7 @@ class Client:
             self.sock.settimeout(timeout)
 
     def close(self):
+        self.timer.cancel()
         self.closed.set()
         if self.sock:
             try:

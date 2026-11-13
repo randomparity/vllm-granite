@@ -221,3 +221,47 @@ class TokenizerReturnCases(unittest.TestCase):
         values = b.fixture_payloads(Tokenizer())
         self.assertEqual(values['F-context']['input_tokens'], 3840)
         self.assertEqual(values['F-over']['input_tokens'], 4097)
+
+class SlowDripCases(unittest.TestCase):
+    def test_absolute_deadline_closes_dripping_headers_and_metrics_body(self):
+        import socket
+        import threading
+        for stage in ('headers', 'body'):
+            left, right = socket.socketpair()
+            completed = threading.Event()
+            stop = threading.Event()
+            headers = b'HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\n'
+            def serve():
+                with right:
+                    try:
+                        request = b''
+                        while b'\r\n\r\n' not in request:
+                            request += right.recv(4096)
+                        if stage == 'body':
+                            right.sendall(headers)
+                        data = headers if stage == 'headers' else b'x' * 64
+                        for byte in data:
+                            if stop.wait(.01):
+                                return
+                            right.sendall(bytes([byte]))
+                        completed.set()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+            server = threading.Thread(target=serve)
+            server.start()
+            client = b.Client(b.time.monotonic() + .08)
+            def connect(connection):
+                connection.sock = left
+            try:
+                with patch.object(b.http.client.HTTPConnection, 'connect', connect):
+                    with self.assertRaises((RuntimeError, OSError, b.http.client.HTTPException)):
+                        response = client.open('/metrics')
+                        if stage == 'body':
+                            response.read(2 * 1024 * 1024 + 1)
+                        client.check()
+                self.assertFalse(completed.is_set(), 'read waited for complete dripped response')
+            finally:
+                stop.set()
+                client.close()
+                server.join(timeout=2)
+            self.assertFalse(server.is_alive())
