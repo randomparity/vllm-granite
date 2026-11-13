@@ -247,7 +247,6 @@ def argv(state, gpu, name, network):
             '--image-volume=ignore', '--cap-drop=all', '--security-opt=no-new-privileges',
             '--security-opt=label=type:granite_server.process', '--ipc=private', '--pid=private',
             '--cgroupns=private', '--memory=32g', '--memory-swap=32g', '--cpus=8',
-            '--cpuset-cpus=' + ','.join(map(str, sorted(os.sched_getaffinity(0))[:8])),
             '--pids-limit=1024', '--shm-size=4g', '--tmpfs=/dev/shm:rw,size=4g,mode=1777',
             '--tmpfs=/tmp:rw,size=1g,mode=1777',
             '--tmpfs=/run:rw,size=64m', '--device', f'nvidia.com/gpu={gpu}',

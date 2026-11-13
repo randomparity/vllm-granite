@@ -43,7 +43,7 @@ identify its path in actionable errors, and preserve the primary failure when cl
 
 Require 48 GiB MemAvailable, eight CPUs, delegated cpu/memory/pids v2 and enforcing SELinux/seccomp;
 the A6000 needs free memory covering its 0.80 allocation plus 6 GiB. Use one UUID CDI device,
-private IPC/PID/cgroup, RAM 32 GiB/no swap, CPU quota/affinity 8, PIDs 1024, shm 4 GiB,
+private IPC/PID/cgroup, RAM 32 GiB/no swap, aggregate CPU-time quota 8, PIDs 1024, shm 4 GiB,
 readonly root, dropped capabilities and NNP. Ignore image volumes; explicitly bound writable
 /dev/shm to 4 GiB, /tmp to 1 GiB and /run to 64 MiB. Model/cache use private SELinux relabeling.
 Default GPU occupancy is zero other compute processes. The sole approved exception is the recorded

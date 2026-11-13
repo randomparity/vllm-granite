@@ -191,6 +191,9 @@ class RuntimeCases(unittest.TestCase):
                      '--pids-limit=1024', '--shm-size=4g', 'HF_HUB_OFFLINE=1',
                      'TRANSFORMERS_OFFLINE=1', 'VLLM_PLUGINS=', '/private/model:/model:ro,Z'):
             self.assertIn(flag, args)
+        self.assertIn('--cpus=8', args)
+        self.assertIn('OMP_NUM_THREADS=8', args)
+        self.assertFalse(any(arg.startswith('--cpuset-cpus') for arg in args))
         self.assertEqual(args.count('--device'), 1)
         self.assertIn('nvidia.com/gpu=GPU-test', args)
         self.assertIn('127.0.0.1:8000:8000', args)

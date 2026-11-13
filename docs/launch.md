@@ -147,7 +147,8 @@ approved observation, not an automatic snapshot of whatever processes currently 
 Process restart, identity mismatch or usage above 38 MiB requires inspection, not a fresh exemption.
 
 The launcher creates private state, locks it, mounts model data read-only and preserves a bounded
-cache. Hard limits include 32 GiB RAM/no swap, eight CPUs, 1024 PIDs, private 4 GiB shared memory,
+cache. Hard limits include 32 GiB RAM/no swap, eight CPUs of aggregate CPU-time quota, 1024 PIDs,
+private 4 GiB shared memory,
 1 GiB temporary space and 64 MiB runtime space. Disk scans monitor image/scratch 32 GiB, model
 20 GiB, cache 8 GiB, logs/state 4 GiB, total 64 GiB; these are stop conditions, not disk quotas.
 GPU memory is monitored against 40 GiB; sampling can overshoot. Startup is bounded to 600 seconds,
@@ -169,3 +170,6 @@ git diff --check
 
 Pinned-image live acquisition/check evidence is recorded after executing these commands against
 committed source; cached-image prerequisite evidence above does not substitute for that result.
+
+The first pinned-image check exposed unavailable rootless `cpuset` delegation. The launcher uses
+the supported eight-CPU time quota and verifies `cpu.max`; it does not require core affinity.
