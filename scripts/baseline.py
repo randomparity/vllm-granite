@@ -507,11 +507,15 @@ def reset_cache(state):
 
 
 def public_result(result, fixtures):
-    value = {k: v for k, v in result.items()
-             if k not in ('private_runtime', 'callback_returned_at')}
-    value['fixture_manifest'] = {k: v for k, v in fixtures.items() if k != 'invalid'}
+    fields = ('status', 'commit', 'profile', 'gpu_alias', 'requests', 'resource_peaks',
+              'startups', 'cleanups', 'scenarios', 'limits', 'configuration',
+              'cold_definition', 'throughput_definition', 'default_profile_sha256',
+              'versions', 'failure_class', 'elapsed_s')
+    value = {key: result[key] for key in fields if key in result}
+    fields = ('image', 'model', 'revision', 'template_sha256', 'add_generation_prompt', 'order')
+    value['fixture_manifest'] = {key: fixtures[key] for key in fields if key in fixtures}
     value['fixture_manifest']['fixtures'] = {
-        name: {k: v for k, v in item.items() if k != 'bodies'}
+        name: {key: item[key] for key in ('input_tokens', 'repetitions', 'sha256') if key in item}
         for name, item in fixtures.get('fixtures', {}).items()}
     value['fixture_manifest']['invalid_sha256'] = {
         name: hashlib.sha256(raw.encode()).hexdigest()

@@ -186,9 +186,10 @@ class EvidenceCases(unittest.TestCase):
     def test_public_result_excludes_runtime_and_payloads(self):
         private = 'sensitive-machine-prompt'
         result = {'private_runtime': [private], 'callback_returned_at': 1, 'requests': [],
-                  'status': 'failed'}
-        fixtures = {'fixtures': {'F-short': {'bodies': {'plain': private}, 'input_tokens': 20}},
-                    'invalid': {'case': private}}
+                  'status': 'failed', 'command_error': private}
+        fixtures = {'fixtures': {'F-short': {'bodies': {'plain': private},
+                    'input_tokens': 20, 'raw_text': private}},
+                    'invalid': {'case': private}, 'tokenizer_error': private}
         value = b.public_result(result, fixtures)
         self.assertNotIn(private, json.dumps(value))
         self.assertEqual(value['status'], 'failed')
