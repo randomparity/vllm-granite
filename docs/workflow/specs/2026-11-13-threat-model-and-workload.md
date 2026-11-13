@@ -48,7 +48,9 @@ README navigation resolves and independent review has no unresolved blockers.
   source claims, limits, scenario outcomes and cleanup directly.
 - README navigation: Mode: focused-test. Parse README Markdown targets; require
   the new threat-model target and resolve local destinations. Missing link or file
-  raises AssertionError. Run `python3 /tmp/quest3-q3-9a4b55c3/check-links.py`
-  with the recorded case (private verification artifact, not shipped tooling).
+  raises AssertionError. Run this self-contained green command from repo root:
+  ```sh
+  python3 -c 'import re; from pathlib import Path; links=re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", Path("README.md").read_text()); assert "docs/threat-model-and-workload.md" in links; assert all(Path(t).is_file() for t in links if "://" not in t)'
+  ```
 - Formatting: `git diff --check` must exit 0; inspect public text for identifiers.
   No repository CI, guardrails or hooks exist; no infrastructure tests apply.
