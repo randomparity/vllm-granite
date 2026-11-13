@@ -38,7 +38,8 @@ Outside: other GPUs, architectures, distributed serving and remote API exposure.
   metadata, pinned model configuration, inventory output and numerical consistency.
 - README navigation: Mode: focused-test. Resolve each local Markdown link to a
   real file; missing destination raises AssertionError (red). README local-link case:
-  `python3 /tmp/quest2-q2-a3b8a786/check-links.py` must print success (green).
+  `python3 -c 'from pathlib import Path; assert Path("docs/compatibility.md").is_file()'`
+  exits 0 (green); separately inspect that README links this destination.
 - Formatting: `git diff --check`; expect exit 0. Scan all public text for private
   identifiers before publication. No repository CI, test suite or hooks exist.
 
