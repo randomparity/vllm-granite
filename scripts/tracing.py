@@ -181,8 +181,9 @@ class Capture:
             require((self.folder / 'exit.json').exists(),
                     'observer did not close after teardown')
             error = (self.folder / 'observer.stderr').read_text()
-            require(all(re.fullmatch(r'(?:[^\n]*strace): Process \d+ attached(?: with \d+ threads)?',
-                                     line) for line in error.splitlines()),
+            require(all(re.fullmatch(r'(?:[^\n]*strace): Process \d+ attached'
+                                     r'(?: with \d+ threads)?', line)
+                        for line in error.splitlines()),
                     'observer diagnostics invalidate coverage; inspect private stderr')
             require(not (self.folder / 'supervisor.stderr').stat().st_size,
                     'supervisor failed; inspect private stderr')

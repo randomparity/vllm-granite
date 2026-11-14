@@ -69,7 +69,8 @@ class ParserCases(unittest.TestCase):
     def test_same_namespace_and_failed_clone(self):
         text = TRACE.replace("2 /* 2000 in strace's PID NS */", '2000')
         text = text.replace('1000 1.000005',
-                            '1000 1.000004 clone3(0x1, 0x2) = -1 ENOSYS (Function not implemented)\n'
+                            '1000 1.000004 clone3(0x1, 0x2) = -1 ENOSYS '
+                            '(Function not implemented)\n'
                             '1000 1.000005')
         self.assertEqual(self.validate(text, False)['tasks'], 2)
 
@@ -123,7 +124,8 @@ class ObserverCases(unittest.TestCase):
             capture = t.Capture(folder)
             state = {'pid': os.getpid(), 'id': 'a' * 64, 'status': 'created',
                      'annotations': {t.ANNOTATION: 'wrong'}}
-            with patch.object(sys, 'stdin', io.TextIOWrapper(io.BytesIO(json.dumps(state).encode()))):
+            with patch.object(sys, 'stdin',
+                              io.TextIOWrapper(io.BytesIO(json.dumps(state).encode()))):
                 with patch.object(t.subprocess, 'Popen') as spawn:
                     with self.assertRaises(RuntimeError):
                         t.hook(folder)
@@ -249,7 +251,8 @@ class BaselineCases(unittest.TestCase):
             trial = b.Trial(Path(name), 'private', None, None, {}, result, 100)
             trial.capture_root = Path(name)
             with patch.object(b.tracing, 'Capture') as capture, \
-                 patch.object(g, 'preflight'), patch.object(g, 'gpu_state', return_value=[0, 0, 0]), \
+                 patch.object(g, 'preflight'), \
+                 patch.object(g, 'gpu_state', return_value=[0, 0, 0]), \
                  patch.object(g, 'launch') as launch, \
                  patch.object(trial, 'verify_teardown', return_value={'status': 'passed'}):
                 capture.return_value.summary = {'status': 'complete', 'tasks': 3}
@@ -282,10 +285,12 @@ class BaselineCases(unittest.TestCase):
             args = SimpleNamespace(state=state, gpu='private', desktop_baseline=None,
                                    reset_cache=False, trace=True)
             with patch.object(g, 'reachable', return_value=False), \
-                 patch.object(g, 'desktop_baseline'), patch.object(g, 'preflight', return_value=info), \
+                 patch.object(g, 'desktop_baseline'), \
+                 patch.object(g, 'preflight', return_value=info), \
                  patch.object(g, 'Budget', return_value=budget), \
                  patch.object(g, 'run', return_value='version'), patch.object(g, 'launch'), \
-                 patch.object(b.shutil, 'disk_usage', return_value=SimpleNamespace(free=100*g.GIB)), \
+                 patch.object(b.shutil, 'disk_usage',
+                              return_value=SimpleNamespace(free=100*g.GIB)), \
                  patch.object(b, 'validate_fixtures'), patch.object(b, 'Trial', Trial):
                 with self.assertRaisesRegex(RuntimeError, 'cgroup OOM'):
                     b.run_trial(args)
