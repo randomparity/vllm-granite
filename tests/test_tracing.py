@@ -98,6 +98,7 @@ class ObserverCases(unittest.TestCase):
             self.assertIsNotNone(re.fullmatch(key, t.ANNOTATION))
             self.assertIsNotNone(re.fullmatch(value, capture.token))
             self.assertIn(capture.token, capture.arguments()[1])
+            self.assertEqual(capture.arguments(start=True), capture.arguments()[:1])
             with self.assertRaises(RuntimeError):
                 capture.check()
             capture.container = 'a' * 64
@@ -170,7 +171,7 @@ class ObserverCases(unittest.TestCase):
 
 
 class LaunchCases(unittest.TestCase):
-    def launch(self, fault=False):
+    def launch(self, fault=False, require_start_hook=False):
         with tempfile.TemporaryDirectory() as name:
             state = Path(name)
             (state / 'logs').mkdir()
@@ -178,10 +179,13 @@ class LaunchCases(unittest.TestCase):
 
             class Capture:
                 container = None
-                def arguments(self):
-                    return ['--hooks-dir=/private/hooks', '--annotation=org.granite.capture=test']
+                def arguments(self, start=False):
+                    values = ['--hooks-dir=/private/hooks']
+                    return values if start else values + ['--annotation=org.granite.capture=test']
                 def check(self):
                     events.append('check')
+                    if require_start_hook and 'hook-start' not in events:
+                        raise RuntimeError('trace: prestart acknowledgment missing')
                     if fault:
                         raise RuntimeError('primary capture failure')
                 def finish(self):
@@ -197,6 +201,9 @@ class LaunchCases(unittest.TestCase):
                     return 'a' * 64
                 if args[:2] == ('podman', 'start'):
                     events.append('start')
+                    if '--hooks-dir=/private/hooks' in args:
+                        events.append('hook-start')
+                    self.assertFalse(any(x.startswith('--annotation=') for x in args))
                 return ''
             with contextlib.ExitStack() as stack:
                 for field, value in {'exists': lambda *a: False, 'run': run,
@@ -220,6 +227,9 @@ class LaunchCases(unittest.TestCase):
 
     def test_capture_failure_preserves_cause_and_cleans(self):
         self.launch(True)
+
+    def test_separate_start_retains_private_hook_runtime_configuration(self):
+        self.launch(require_start_hook=True)
 
 
 class BaselineCases(unittest.TestCase):

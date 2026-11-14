@@ -68,6 +68,11 @@ Those preliminary probes did not validate the final collector/parser or GPU work
 Ordinary tests exercise the final observer against a harmless host child and private
 PID-namespace fixtures. A separately approved complete traced GPU trial is still required.
 
+The [first approved traced trial](evidence/tracing-first-attempt.md) failed before
+readiness because the split start invocation did not receive the private hook
+directory. The launcher now supplies it to both create and start; GPU validation
+of that repair requires another explicit trial approval.
+
 Upstream references: [OCI hook configuration](https://github.com/containers/common/blob/main/pkg/hooks/docs/oci-hooks.5.md),
 [strace 7.2 manual](https://github.com/strace/strace/blob/v7.2/doc/strace.1.in),
 [PID translation](https://github.com/strace/strace/blob/v7.2/src/pidns.c).

@@ -154,9 +154,11 @@ class Capture:
             'stages': ['prestart']}
         write(hooks, '00-capture.json', definition)
 
-    def arguments(self):
-        return ['--hooks-dir=' + str(self.folder / 'hooks'),
-                '--annotation=' + ANNOTATION + '=' + self.token]
+    def arguments(self, start=False):
+        values = ['--hooks-dir=' + str(self.folder / 'hooks')]
+        if not start:
+            values.append('--annotation=' + ANNOTATION + '=' + self.token)
+        return values
 
     def check(self):
         require((self.folder / 'armed.json').exists(), 'prestart acknowledgment missing')

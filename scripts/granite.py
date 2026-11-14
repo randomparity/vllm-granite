@@ -498,7 +498,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
             capture.container = created
         start = time.monotonic()
         deadline = min(start + (30 if diagnostic else 600), session_deadline or float('inf'))
-        run('podman', 'start', name, deadline=deadline)
+        start_args = capture.arguments(start=True) if capture else []
+        run('podman', 'start', *start_args, name, deadline=deadline)
         if capture:
             capture.check()
         observation = observe(name, gpu, deadline)
