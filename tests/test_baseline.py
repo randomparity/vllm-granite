@@ -175,7 +175,8 @@ class TransportCases(unittest.TestCase):
             def close(self):
                 closed.set()
         trial = b.Trial(None, None, None, None,
-                        {'fixtures': {'F-short': {'bodies': {'plain': '{}'}}}}, {},
+                        {'fixtures': {'F-short': {'bodies': {'plain': '{}'},
+                         'sha256': {'plain': 'a'*64}}}}, {},
                         b.time.monotonic() + .05)
         with patch.object(b, 'Client', Stalled), patch.object(trial, 'sample'):
             with self.assertRaises(RuntimeError):
@@ -368,3 +369,35 @@ class CancellationEvidenceCases(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'following F-short failed'):
                 trial.cancel()
         self.assertNotEqual(result['scenarios']['W-cancel']['status'], 'passed')
+
+class FailedBatchEvidenceCases(unittest.TestCase):
+    def test_mixed_batch_retains_identities_and_completed_sibling_without_raw_error(self):
+        import threading
+        barrier = threading.Barrier(2)
+        secret = 'private error text'
+        class Client:
+            def __init__(self, deadline):
+                self.deadline = deadline
+            def chat(self, raw, *args):
+                barrier.wait(timeout=2)
+                if raw == b'long':
+                    raise b.ResponseFailure(500, json.dumps({'error': {'message': secret}}).encode())
+                return {'status': 200, 'input_tokens': 21, 'output_tokens': 1,
+                        'latency_s': .1, 'ttft_s': None, 'started_s': 1, 'ended_s': 1.1}
+            def close(self):
+                pass
+        fixtures = {'fixtures': {name: {'bodies': {'plain': raw}, 'sha256': {'plain': 'a'*64},
+                    'input_tokens': 21} for name, raw in (('F-short', 'short'), ('F-long', 'long'))}}
+        result = {'requests': []}
+        trial = b.Trial(None, None, None, None, fixtures, result, b.time.monotonic() + 2)
+        with patch.object(b, 'Client', Client), patch.object(trial, 'sample'):
+            with self.assertRaises(b.ResponseFailure):
+                trial.batch([('F-short', False, False, None), ('F-long', False, False, None)],
+                            'cold', concurrency=2)
+        records = result['failed_requests']
+        self.assertEqual({row['fixture'] for row in records}, {'F-short', 'F-long'})
+        completed = next(row for row in records if row['outcome'] == 'completed')
+        self.assertEqual(completed['output_tokens'], 1)
+        self.assertEqual(next(row for row in records if row['outcome'] == 'failed')['http_status'],500)
+        self.assertEqual(b.summarize(result['requests']), [])
+        self.assertNotIn(secret, json.dumps(b.public_result(result, fixtures)))

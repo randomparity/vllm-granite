@@ -208,6 +208,7 @@ class ResponseFailure(RuntimeError):
     def __init__(self, status, body):
         super().__init__(f'request: unexpected HTTP {status}; inspect private response evidence')
         self.body = body
+        self.status = status
         self.resource_class = None
         try:
             error = json.loads(body).get('error', {})
@@ -376,6 +377,25 @@ class Trial:
             if hold:
                 self.held = clients.pop()
             return values
+        except BaseException:
+            records = self.result.setdefault('failed_requests', [])
+            for job, future in zip(jobs, futures):
+                fixture, stream, _, raw = job
+                mode = 'stream' if stream else 'plain'
+                record = {'fixture': fixture, 'stream': stream, 'cache': cache,
+                          'concurrency': concurrency, 'outcome': 'interrupted',
+                          'request_sha256': hashlib.sha256(raw).hexdigest() if raw else
+                              self.fixtures['fixtures'][fixture]['sha256'][mode]}
+                if future.done() and not future.cancelled():
+                    error = future.exception()
+                    if error is None:
+                        record.update(future.result(), outcome='completed')
+                    else:
+                        record.update(outcome='failed', failure_class=type(error).__name__,
+                                      http_status=error.status if isinstance(error, ResponseFailure)
+                                      else None)
+                records.append(record)
+            raise
         finally:
             for client in clients:
                 client.close()
@@ -568,7 +588,7 @@ def public_result(result, fixtures):
     fields = ('status', 'commit', 'profile', 'gpu_alias', 'requests', 'resource_peaks',
               'startups', 'cleanups', 'scenarios', 'limits', 'configuration',
               'cold_definition', 'throughput_definition', 'default_profile_sha256',
-              'versions', 'failure_class', 'resource_error_class', 'elapsed_s')
+              'versions', 'failure_class', 'resource_error_class', 'elapsed_s', 'failed_requests')
     value = {key: result[key] for key in fields if key in result}
     fields = ('image', 'model', 'revision', 'template_sha256', 'add_generation_prompt', 'order')
     value['fixture_manifest'] = {key: fixtures[key] for key in fields if key in fixtures}
