@@ -19,6 +19,7 @@ import uuid
 
 ERROR_LOG = None
 GIB = 1024 ** 3
+SERVE_SHUTDOWN_SECONDS = 20
 IMAGE = 'docker.io/vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9'
 REV = 'a7042144125ce5ae64f89610e8289647fc000b9a'
 MODEL = 'ibm-granite/granite-4.2-8b'
@@ -487,7 +488,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
                      '--max-model-len', '4096', '--max-num-seqs', '2',
                      '--max-num-batched-tokens', '4096', '--gpu-memory-utilization', '0.80',
                      '--generation-config', 'vllm', '--override-generation-config',
-                     '{"max_new_tokens":256}', '--no-enable-log-requests', '--disable-uvicorn-access-log']
+                     '{"max_new_tokens":256}', '--no-enable-log-requests',
+                     '--disable-uvicorn-access-log', '--shutdown-timeout', str(SERVE_SHUTDOWN_SECONDS)]
         run(*args)
         start = time.monotonic()
         deadline = min(start + (30 if diagnostic else 600), session_deadline or float('inf'))

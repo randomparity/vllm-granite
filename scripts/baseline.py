@@ -634,7 +634,8 @@ def run_trial(args):
                     'backend': 'FLASH_ATTN', 'flash_attn_version': 2, 'vllm_version': '0.32.0',
                     'gpu_utilization': .80, 'max_model_len': 4096, 'max_num_seqs': 2,
                     'max_num_batched_tokens': 4096, 'cpus': 8, 'pids': 1024,
-                    'shared_memory_bytes': 4*g.GIB},
+                    'shared_memory_bytes': 4*g.GIB,
+                    'request_drain_s': g.SERVE_SHUTDOWN_SECONDS},
                   'cold_definition': ('empty project compilation cache; '
                                       'warm acquired weights/OS cache'),
                   'throughput_definition': 'class output tokens / first-start to last-end window'}

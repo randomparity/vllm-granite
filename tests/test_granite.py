@@ -302,7 +302,7 @@ class RuntimeCases(unittest.TestCase):
                              for x in args))
 
 class ServingContractCases(unittest.TestCase):
-    def test_pinned_server_uses_supported_request_logging_opt_out(self):
+    def test_pinned_server_uses_private_logging_and_bounded_drain(self):
         captured = []
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
@@ -319,6 +319,10 @@ class ServingContractCases(unittest.TestCase):
         self.assertIn('--no-enable-log-requests', captured)
         self.assertNotIn('--disable-log-requests', captured)
         self.assertNotIn('--enable-log-requests', captured)
+        drain = int(captured[captured.index('--shutdown-timeout') + 1])
+        self.assertEqual(drain, 20)
+        self.assertLess(drain, int(next(x for x in captured
+                                       if x.startswith('--stop-timeout=')).split('=')[1]))
 
     def test_exited_server_is_reported_before_removed_cgroup_is_read(self):
         state = {'Running': False, 'OOMKilled': False, 'ExitCode': 2}
