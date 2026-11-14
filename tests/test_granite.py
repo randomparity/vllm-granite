@@ -330,3 +330,26 @@ class ServingContractCases(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'server exited.*2'):
                 g.active('owned', observation, 'GPU-test', budget, None, g.time.monotonic()+2)
         self.assertEqual(observation['GraniteExitState']['ExitCode'], 2)
+
+class StartupEvidenceCases(unittest.TestCase):
+    def test_exit_before_readiness_persists_updated_observation_and_cleans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'logs').mkdir()
+            exited = {'Running': False, 'OOMKilled': False, 'ExitCode': 2}
+            def command(*args, **kwargs):
+                if args[1] == 'inspect':
+                    return g.json.dumps([{'State': exited}])
+                return ''
+            def observed(name, *args):
+                return {'Name': name, 'GraniteProof': {'cgroup': '/removed'}}
+            budget = SimpleNamespace(check=lambda **kwargs: None)
+            with patch.object(g, 'exists', return_value=False), patch.object(g, 'run', command), \
+                 patch.object(g, 'observe', side_effect=observed), \
+                 patch.object(g, 'cleanup') as cleanup, \
+                 patch.object(g, 'reachable', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'server exited.*2'):
+                    g.launch(state, 'GPU-test', budget, False)
+            retained = g.json.loads((state / 'logs' / 'inspect.json').read_text())
+            self.assertEqual(retained['GraniteExitState']['ExitCode'], 2)
+            cleanup.assert_called_once()

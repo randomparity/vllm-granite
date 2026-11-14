@@ -522,6 +522,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
         cleanup_start, clean = time.monotonic(), False
         try:
             try:
+                if observation:
+                    (state / 'logs' / 'inspect.json').write_text(json.dumps(observation))
                 (state / 'logs' / 'runtime-peaks.json').write_text(
                     json.dumps(observation.get('GranitePeaks', {})))
             finally:
