@@ -24,8 +24,10 @@ import uuid
 
 if __package__:
     from . import granite as g
+    from . import tracing
 else:
     import granite as g
+    import tracing
 
 
 def encoded(value):
@@ -338,8 +340,11 @@ class Trial:
         self.name = self.observation = None
         self.held = None
         self.last_sample = 0
+        self.capture_root = self.capture = None
 
     def sample(self, deadline=None, force=False):
+        if self.capture:
+            self.capture.check()
         if force or time.monotonic() - self.last_sample >= 1:
             values = g.active(self.name, self.observation, self.gpu, self.budget,
                               self.baseline, min(deadline or self.deadline, self.deadline))
@@ -532,10 +537,14 @@ class Trial:
         seconds(self.deadline)
         before = g.gpu_state(self.gpu)[2]
         self.name = self.observation = None
+        self.capture = tracing.Capture(self.capture_root / cache) if self.capture_root else None
         try:
             g.launch(self.state, self.gpu, self.budget, False, self.baseline,
                      workload=self.workload(cache, functional, stop, first_only),
-                     session_deadline=self.deadline)
+                     session_deadline=self.deadline, capture=self.capture)
+            if self.capture:
+                g.require(self.capture.summary is not None, 'trace: completed summary missing')
+                self.result.setdefault('traces', []).append(dict(self.capture.summary, cache=cache))
             if stop:
                 try:
                     tail = self.held.response.read(2 * 1024 * 1024 + 1)
@@ -606,6 +615,10 @@ def public_result(result, fixtures):
         name: hashlib.sha256(raw.encode()).hexdigest()
         for name, raw in fixtures.get('invalid', {}).items()}
     value['summary'] = summarize(result['requests'])
+    if 'traces' in result:
+        trace_fields = ('status', 'cache', 'tasks', 'syscall_records', 'bytes', 'sha256', 'tracer')
+        value['traces'] = [{key: row[key] for key in trace_fields if key in row}
+                           for row in result['traces']]
     return value
 
 
@@ -676,6 +689,9 @@ def run_trial(args):
             g.require(not list((state / 'cache').iterdir()),
                       'cache: cold start requires empty compilation cache; explicit reset needed')
             trial = Trial(state, args.gpu, budget, baseline, fixtures, result, deadline)
+            if getattr(args, 'trace', False):
+                trial.capture_root = folder / 'traces'
+                trial.capture_root.mkdir(mode=0o700)
             trial.session('cold')
             trial.session('warm', functional=True, stop=True)
             trial.session('restart', first_only=True)
@@ -697,7 +713,8 @@ def run_trial(args):
                 and error.errno in (errno.ENOMEM, errno.ENOSPC)
                 or any(word in str(error) for word in ('cgroup OOM', 'server stopped/OOM',
                                                        'GPU memory exceeds', 'disk:')))
-            if (trial and resource_error and result['cleanups']
+            if (trial and resource_error and not getattr(args, 'trace', False)
+                    and result['cleanups']
                     and result['cleanups'][-1]['status'] == 'passed'):
                 resource = result['scenarios']['W-resource']
                 resource['runtime_recovery'] = 'attempted-once'
@@ -724,6 +741,8 @@ def main():
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--gpu', required=True)
     parser.add_argument('--desktop-baseline', type=Path)
+    parser.add_argument('--trace', action='store_true',
+                        help='explicit diagnostic syscall capture for cold/warm/restart')
     parser.add_argument('--reset-cache', action='store_true',
                         help='discard only project compilation-cache contents before cold start')
     args = parser.parse_args()

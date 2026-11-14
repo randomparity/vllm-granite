@@ -10,3 +10,5 @@ See the [threat model and validation workload](docs/threat-model-and-workload.md
 See the [pinned acquisition and confined launch commands](docs/launch.md).
 
 See the [bounded baseline harness and first attempted result](docs/baseline.md).
+
+See the [explicit diagnostic syscall capture](docs/tracing.md).
