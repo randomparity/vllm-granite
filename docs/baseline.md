@@ -86,9 +86,45 @@ The request-logging option is now the supported `--no-enable-log-requests`; the
 also records request logging's default as false. Repair commit
 `3b82ee2d8a88cb68a29cdfacd688ffe74acfc67c` also records server exit state before reading
 removed cgroup files, preserving the actionable startup cause. Both behaviors have focused
-regressions; this repair has not received another live inference run.
+regressions. A subsequent complete pinned serving-CLI parser/validation probe passed without
+loading weights or constructing an inference engine, followed by the authorized third trial below.
 
-The inference baseline remains **incomplete**. No fit, startup, latency, throughput,
-cancellation or active-stop success is claimed from either attempt. Both authorized
-measurement attempts are consumed; another requires an explicit operator decision.
-Pins, resource limits and security settings remain unchanged. A failure stays a failed trial.
+## Third actual result: measurements retained, active stop failed
+
+One further explicitly authorized trial at executable commit
+`e09c880a0e8f90b2091c3f62e4423f555db672dd` failed after **498.470 seconds**.
+Cold readiness/first completion were **53.020/54.106 seconds**; warm times were
+**30.560/31.646 seconds**. All **80 timed requests** completed with validated JSON/SSE
+contracts. The [sanitized third result](evidence/baseline-third-attempt.md) retains all
+16 cache/concurrency/fixture/stream class summaries, including achieved output counts,
+median/p95 latency, streaming TTFT and throughput under the definition above.
+
+The 3840-token context was admitted and the 4097-token input rejected. All five invalid
+cases returned client errors; continued service was checked afterward. Disconnect handling
+observed outstanding requests fall from1 to0 in **0.110 seconds**, followed by a successful
+F-short. Sampled device memory peaked at **38.54 GiB** below40 GiB; kernel cgroup memory.peak
+was **2.48 GiB** below32 GiB. The mandatory synthetic resource refusal passed; actual
+allocator recovery was unexercised. Cold cleanup passed in **1.206 seconds**.
+
+The warm session then attempted W-stop with a streaming request active. The pinned server's
+default zero shutdown timeout selected engine abort mode; its HTTP server waited for the
+held connection until the outer 30-second stop forced a kill, exit137. The trial stopped;
+restart was **not run**. A separate post-failure observation verified both original cgroups,
+project GPU processes, endpoint and project networks were absent, with device memory back
+to its initial sampled baseline. That establishes resource release after failure, not a
+successful graceful stop.
+
+Repair `4b938b7e046ee4a65ad0be43ba1dffd3f079ea7c` sets the native `--shutdown-timeout` to20 seconds inside the unchanged
+30-second outer stop bound. The [versioned vLLM reference](https://docs.vllm.ai/en/v0.32.0/cli/serve/)
+documents positive values as an in-flight drain period. A focused regression failed before
+the repair; all49 unit tests passed afterward. **The repaired stop path has not run live.**
+The earlier parser probe applies to the pre-repair candidate; it did not validate this added
+option. The third result retains the original scenario flags, which were finalized only at
+whole-trial success; the completed startup/request records supply the partial observations.
+Functional response checks passed, but their individual latency/output-token records were
+not retained. These limits are not replaced by the timed-request measurements.
+
+The inference baseline remains **incomplete** because active graceful stop and restart are
+unproven. All three authorized measurement attempts are consumed; another requires an
+explicit operator decision. Pins, resource limits and security settings remain unchanged.
+A failure stays a failed trial.
