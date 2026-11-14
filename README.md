@@ -12,3 +12,5 @@ See the [pinned acquisition and confined launch commands](docs/launch.md).
 See the [bounded baseline harness and first attempted result](docs/baseline.md).
 
 See the [explicit diagnostic syscall capture](docs/tracing.md).
+
+See the [offline syscall inventory and baseline requirements review](docs/syscall-requirements.md).

@@ -52,8 +52,10 @@ versions, workload/fixture IDs and tested artifact hashes. Review its entire con
 publishing. A complete capture is evidence for this workload, not an inferred syscall
 allowlist. Interpretation belongs to #7 and policy decisions to #8.
 
-Coverage begins at the application exec boundary. Earlier runtime bootstrap calls and
-deliberate hostile observer evasion are outside this diagnostic evidence claim. ptrace is
+Coverage is armed before application exec and can include OCI runtime initialization.
+The offline [requirements review](syscall-requirements.md) separates records starting before
+the root successful exec from the application phase; total capture counts include both.
+Deliberate hostile observer evasion remains outside this diagnostic evidence claim. ptrace is
 synchronous rather than sampled; no perf/BPF loss counter applies. Attachment gaps,
 detaches, unavailable records, write errors or premature observer exit invalidate coverage.
 If the operator kills the launcher forcibly, reconcile only its exact project container,

@@ -79,3 +79,9 @@ before the application-exec boundary and deliberate hostile observer evasion are
 outside this trusted diagnostic claim. This single diagnostic run establishes no
 paired overhead result, universal syscall inventory or security-policy sufficiency;
 those downstream decisions remain #7–#10.
+
+Offline issue #7 interpretation correction: the retained traces also include OCI runtime
+initialization before the root successful application exec. Original totals/hashes above
+remain unchanged; the [requirements inventory](../syscall-requirements.md) separates that
+phase so runtime setup is not mistaken for serving requirements. The earlier boundary
+claim does not exclude those records from the retained raw evidence.
