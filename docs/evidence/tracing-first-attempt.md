@@ -37,5 +37,6 @@ Retained sanitized-result SHA256: `6d5318a3f46ef38b35f7e7ceb47924c13b92c9d68362a
 Raw capture hashes do not exist. Private inputs, event identities, logs and failure
 details remain local; this report publishes no raw syscall text or machine identity.
 
-The repair's complete GPU capture remains unverified. A further bounded trial
-requires a new explicit operator decision; the first grant is consumed.
+At this attempt the repair remained live-unverified and the first grant was consumed.
+A separately authorized [second attempt](tracing-second-attempt.md) subsequently passed;
+it does not change this failed result.

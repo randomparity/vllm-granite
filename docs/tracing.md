@@ -66,12 +66,14 @@ with application exec, one thread, a forked child and final exits. The second us
 private bytes in 0.873 s and removed its exact container; the observer exited naturally.
 Those preliminary probes did not validate the final collector/parser or GPU workload.
 Ordinary tests exercise the final observer against a harmless host child and private
-PID-namespace fixtures. A separately approved complete traced GPU trial is still required.
+PID-namespace fixtures. A separately approved [second traced trial](evidence/tracing-second-attempt.md)
+passed cold/warm/restart, the declared workload and complete capture validation.
 
 The [first approved traced trial](evidence/tracing-first-attempt.md) failed before
 readiness because the split start invocation did not receive the private hook
-directory. The launcher now supplies it to both create and start; GPU validation
-of that repair requires another explicit trial approval.
+directory. The launcher now supplies it to both create and start; the separately
+authorized split-start proof and second traced trial verified that repair. Further
+live runs still require their own explicit approval.
 
 Upstream references: [OCI hook configuration](https://github.com/containers/common/blob/main/pkg/hooks/docs/oci-hooks.5.md),
 [strace 7.2 manual](https://github.com/strace/strace/blob/v7.2/doc/strace.1.in),
