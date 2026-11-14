@@ -8,10 +8,10 @@ The exact retained sanitized record has SHA-256:
 
 ## Configuration and observations
 
-Same A6000 alias GPU-A, vLLM0.32.0, BF16/automatic KV dtype, FLASH_ATTN version2, TP1,
-GPU utilization0.80, context4096, max sequences2, batched tokens4096, CPU8, PID1024,
-shared memory4 GiB; GPU ceiling40 GiB and cgroup RAM/swap ceiling32 GiB.
-Bounds: startup600 s, request120 s, graceful stop30 s, whole trial3600 s.
+Same A6000 alias GPU-A, vLLM 0.32.0, BF16/automatic KV dtype, FLASH_ATTN version 2, TP1,
+GPU utilization 0.80, context 4096, max sequences 2, batched tokens 4096, CPU 8, PID 1024,
+shared memory 4 GiB; GPU ceiling 40 GiB and cgroup RAM/swap ceiling 32 GiB.
+Bounds: startup 600 s, request 120 s, graceful stop 30 s, whole trial 3600 s.
 Cold means empty project compilation cache with acquired weights and OS cache warm.
 
 | Cache | Ready (s) | First completion (s) |
@@ -19,7 +19,7 @@ Cold means empty project compilation cache with acquired weights and OS cache wa
 | cold | 53.019620 | 54.105803 |
 | warm | 30.559583 | 31.646229 |
 
-All80 timed requests validated. Each row has5 requests. Latency and streaming TTFT use
+All 80 timed requests validated. Each row has 5 requests. Latency and streaming TTFT use
 median/p95 seconds; `—` means TTFT was not measured for nonstreaming responses.
 Output tokens are achieved totals. Throughput divides those totals by the interval from
 the class’s first request start to last completion, including interleaved classes.
@@ -49,19 +49,19 @@ Sampled device peak: **41386246144 bytes** (38.54 GiB). Cgroup memory.peak:
 ## Functional outcomes and limits
 
 - W-start: cold/warm readiness and first nonempty completions observed as above.
-- W-chat: all80 timed requests passed; full exact request records retained privately.
-- W-context: valid3840-token input admitted;4097-token input rejected; subsequent F-short passed.
-- W-invalid: malformed/missing/empty/zero returned400; unknown model404; F-short then passed.
-- W-cancel: outstanding gauge1→0 after disconnect, release0.109506 s; F-short then passed.
-- W-resource: synthetic CPU7/available RAM47 GiB refused with0 allocations. Natural resource-error
+- W-chat: all 80 timed requests passed; full exact request records retained privately.
+- W-context: valid 3840-token input admitted; 4097-token input rejected; subsequent F-short passed.
+- W-invalid: malformed/missing/empty/zero returned 400; unknown model 404; F-short then passed.
+- W-cancel: outstanding gauge 1→0 after disconnect, release0.109506 s; F-short then passed.
+- W-resource: synthetic CPU 7/available RAM 47 GiB refused with 0 allocations. Natural resource-error
   recovery unexercised; no stress injection or allocation failure occurred.
-- W-stop: failed forced kill at outer30-second bound, exit137; restart not run.
+- W-stop: failed forced kill at outer 30-second bound, exit 137; restart not run.
 
-Cold cleanup passed in1.205941 s with old cgroup, GPU processes and endpoint removed.
-Device memory before/after was336592896 bytes. Warm graceful cleanup failed.
+Cold cleanup passed in 1.205941 s with old cgroup, GPU processes and endpoint removed.
+Device memory before/after was 336592896 bytes. Warm graceful cleanup failed.
 A separate manual post-failure observation verified both original cgroups, project GPU
 processes, endpoint, project networks and running containers absent. Device memory returned
-to336592896 bytes (free50608472064 bytes). This proves release after failure, not graceful stop.
+to 336592896 bytes (free 50608472064 bytes). This proves release after failure, not graceful stop.
 
 The original W-start/W-chat/W-stop status flags remained `not-run` because they were assigned
 only after whole-trial success. Startup/request records independently establish the partial
@@ -74,17 +74,20 @@ Private server log: shutdown selected `mode=abort timeout=0s`, killed EngineCore
 shutdown waited for the held streaming connection until the outer stop killed the API process.
 Launcher error: `run ended; cleanup failed: cleanup: forced kill`.
 Repair `4b938b7e046ee4a65ad0be43ba1dffd3f079ea7c` requests native `--shutdown-timeout 20`
-within the unchanged30-second outer stop limit. The [versioned CLI reference](https://docs.vllm.ai/en/v0.32.0/cli/serve/) documents positive values as request draining.
-Regression red before repair;49 tests green afterward. **No live run of the repaired path.**
+within the unchanged 30-second outer stop limit. The [versioned CLI reference](https://docs.vllm.ai/en/v0.32.0/cli/serve/) documents positive values as request draining.
+Regression red before repair; 49 tests green afterward. **No live run of the repaired path.**
 The successful earlier complete no-load serving-CLI validation covered the pre-repair arguments.
 
 ## Runtime identity
 
-Driver615.71.09; kernel7.2.9-200.fc44.x86_64; Podman5.8.7; crun1.28-1.fc44.x86_64;
-NVIDIA Container Toolkit CLI1.19.1, commit09ceee5dde66ba9ce25c7cc69b1ebd5e6e3266fa.
+Driver 615.71.09; kernel 7.2.9-200.fc44.x86_64; Podman 5.8.7; crun 1.28-1.fc44.x86_64;
+NVIDIA Container Toolkit CLI 1.19.1, commit 09ceee5dde66ba9ce25c7cc69b1ebd5e6e3266fa.
 Runtime-default seccomp source SHA-256:
 `2598b3b98e6970f37f917e210202fa8976aefcd99abf8955803a6e35bba17eb4`.
 Warm-session resolved OCI seccomp canonical JSON SHA-256:
 `a72d56cf20d9616e7121a2e2f2840f08fd69772a71a72896142f5b912389450c`.
 Observed default action SCMP_ACT_ERRNO; architectures X86_64/X86/X32. Cold resolved OCI
 profile was not separately captured. Enforcement analysis belongs to later issues.
+
+A subsequent separately authorized [fourth trial](baseline-fourth-attempt.md) proved the repair.
+This third attempt remains failed.

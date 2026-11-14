@@ -101,30 +101,44 @@ median/p95 latency, streaming TTFT and throughput under the definition above.
 
 The 3840-token context was admitted and the 4097-token input rejected. All five invalid
 cases returned client errors; continued service was checked afterward. Disconnect handling
-observed outstanding requests fall from1 to0 in **0.110 seconds**, followed by a successful
-F-short. Sampled device memory peaked at **38.54 GiB** below40 GiB; kernel cgroup memory.peak
-was **2.48 GiB** below32 GiB. The mandatory synthetic resource refusal passed; actual
+observed outstanding requests fall from 1 to 0 in **0.110 seconds**, followed by a successful
+F-short. Sampled device memory peaked at **38.54 GiB** below 40 GiB; kernel cgroup memory.peak
+was **2.48 GiB** below 32 GiB. The mandatory synthetic resource refusal passed; actual
 allocator recovery was unexercised. Cold cleanup passed in **1.206 seconds**.
 
 The warm session then attempted W-stop with a streaming request active. The pinned server's
 default zero shutdown timeout selected engine abort mode; its HTTP server waited for the
-held connection until the outer 30-second stop forced a kill, exit137. The trial stopped;
+held connection until the outer 30-second stop forced a kill, exit 137. The trial stopped;
 restart was **not run**. A separate post-failure observation verified both original cgroups,
 project GPU processes, endpoint and project networks were absent, with device memory back
 to its initial sampled baseline. That establishes resource release after failure, not a
 successful graceful stop.
 
-Repair `4b938b7e046ee4a65ad0be43ba1dffd3f079ea7c` sets the native `--shutdown-timeout` to20 seconds inside the unchanged
-30-second outer stop bound. The [versioned vLLM reference](https://docs.vllm.ai/en/v0.32.0/cli/serve/)
+Repair `4b938b7e046ee4a65ad0be43ba1dffd3f079ea7c` sets the native `--shutdown-timeout` to 20 seconds
+inside the unchanged 30-second outer stop bound. The [versioned vLLM reference](https://docs.vllm.ai/en/v0.32.0/cli/serve/)
 documents positive values as an in-flight drain period. A focused regression failed before
-the repair; all49 unit tests passed afterward. **The repaired stop path has not run live.**
+the repair; all 49 unit tests passed afterward. At that point the repaired stop path had not run
+live; the fourth result below provides its later proof.
 The earlier parser probe applies to the pre-repair candidate; it did not validate this added
 option. The third result retains the original scenario flags, which were finalized only at
 whole-trial success; the completed startup/request records supply the partial observations.
 Functional response checks passed, but their individual latency/output-token records were
 not retained. These limits are not replaced by the timed-request measurements.
 
-The inference baseline remains **incomplete** because active graceful stop and restart are
-unproven. All three authorized measurement attempts are consumed; another requires an
-explicit operator decision. Pins, resource limits and security settings remain unchanged.
-A failure stays a failed trial.
+## Fourth actual result: all required baseline scenarios passed
+
+The operator explicitly approved one focused review and one further trial. After independent
+review and complete pinned CLI validation, executable commit
+`ecd344796385ccd958431f0eaa3ffd75817e12fc` passed in **538.326 seconds**. See the
+[fourth result](evidence/baseline-fourth-attempt.md) for all 16 metric groups and limits.
+Cold readiness/first completion were **54.975/56.062 seconds**; warm times were
+**30.976/32.063 seconds**. All 80 timed requests and all seven required scenarios passed.
+Active stop drained the stream to a terminal marker in **12.067 seconds**, then restart
+and F-short succeeded within **33.013 seconds**. All three sessions released their cgroups,
+GPU processes, endpoint and device allocations. Sampled device peak was **38.54 GiB**;
+cgroup memory.peak was **2.45 GiB**. Both stayed within the fixed envelope.
+
+The original three failures remain retained. No natural resource error occurred, so runtime
+allocator recovery remains unexercised; the mandatory synthetic refusal passed. This is
+one default-profile baseline trial. Tracing, policy/enforcement, paired ratios and fresh-state
+reproduction remain owned by #6–11. No broader combination certification is claimed.
