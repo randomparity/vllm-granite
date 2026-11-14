@@ -300,3 +300,33 @@ class RuntimeCases(unittest.TestCase):
         self.assertIn('127.0.0.1:8000:8000', args)
         self.assertFalse(any('unconfined' in x or 'privileged' in x or 'label=disable' in x
                              for x in args))
+
+class ServingContractCases(unittest.TestCase):
+    def test_pinned_server_uses_supported_request_logging_opt_out(self):
+        captured = []
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'logs').mkdir()
+            def command(*args, **kwargs):
+                if args[1] == 'create':
+                    captured.extend(args)
+                    raise RuntimeError('captured serving command')
+                return ''
+            with patch.object(g, 'exists', return_value=False), patch.object(g, 'run', command), \
+                 patch.object(g, 'cleanup'), patch.object(g, 'reachable', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'captured serving command'):
+                    g.launch(state, 'GPU-test', None, False)
+        self.assertIn('--no-enable-log-requests', captured)
+        self.assertNotIn('--disable-log-requests', captured)
+        self.assertNotIn('--enable-log-requests', captured)
+
+    def test_exited_server_is_reported_before_removed_cgroup_is_read(self):
+        state = {'Running': False, 'OOMKilled': False, 'ExitCode': 2}
+        observation = {'GraniteProof': {'cgroup': '/removed'}}
+        with patch.object(g, 'run', return_value=g.json.dumps([{'State': state}])), \
+             patch.object(g, 'gpu_state', return_value=[0, 0, 0]), \
+             patch.object(Path, 'read_text', side_effect=FileNotFoundError('removed cgroup')):
+            budget = SimpleNamespace(check=lambda **kwargs: None)
+            with self.assertRaisesRegex(RuntimeError, 'server exited.*2'):
+                g.active('owned', observation, 'GPU-test', budget, None, g.time.monotonic()+2)
+        self.assertEqual(observation['GraniteExitState']['ExitCode'], 2)

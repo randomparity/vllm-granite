@@ -448,6 +448,11 @@ def cleanup(name, network):
 
 def active(name, observation, gpu, budget, baseline, deadline):
     budget.check(deadline=deadline)
+    current = json.loads(run('podman', 'inspect', name, deadline=deadline))[0]['State']
+    observation['GraniteExitState'] = current
+    require(not current['OOMKilled'], 'runtime: cgroup OOM; stop failed trial')
+    require(current['Running'],
+            f'runtime: server exited with code {current["ExitCode"]}; inspect private container.log')
     used = gpu_state(gpu, deadline)[2]
     group = observation['GraniteProof']['cgroup']
     root = Path('/sys/fs/cgroup') / group.lstrip('/')
@@ -461,8 +466,6 @@ def active(name, observation, gpu, budget, baseline, deadline):
     gpu_processes(gpu, baseline, group, deadline)
     events = dict(line.split() for line in (root / 'memory.events').read_text().splitlines())
     require(events['oom_kill'] == '0', 'runtime: cgroup OOM; stop failed trial')
-    current = json.loads(run('podman', 'inspect', name, deadline=deadline))[0]['State']
-    require(current['Running'] and not current['OOMKilled'], 'runtime: server stopped/OOM')
     return sample
 
 def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session_deadline=None):
@@ -484,7 +487,7 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
                      '--max-model-len', '4096', '--max-num-seqs', '2',
                      '--max-num-batched-tokens', '4096', '--gpu-memory-utilization', '0.80',
                      '--generation-config', 'vllm', '--override-generation-config',
-                     '{"max_new_tokens":256}', '--disable-log-requests', '--disable-uvicorn-access-log']
+                     '{"max_new_tokens":256}', '--no-enable-log-requests', '--disable-uvicorn-access-log']
         run(*args)
         start = time.monotonic()
         deadline = min(start + (30 if diagnostic else 600), session_deadline or float('inf'))
