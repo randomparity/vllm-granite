@@ -22,7 +22,11 @@ host strace7.2, Python3, rootless Podman5.8.7/crun1.28 and existing confinement 
 Use a per-container annotation and private --hooks-dir; hook timeout6s, arming timeout4s.
 Read OCI state, validate its init PID and container identity, then start a separate host
 observer supervisor. Verify TracerPid before allowing the prestart hook to return.
-Use strace -f --always-show-pid -ttt with raw argument formatting and one output file.
+Use strace -f --always-show-pid -ttt --decode-pids=pidns with raw=!clone,clone3,fork,vfork
+argument formatting and one output file. Decoded process-creation results retain host PID
+translation comments; reconcile clone return IDs to host record prefixes. In a private PID
+namespace, missing translations or child lifecycle records fail coverage. Keep the remaining
+arguments raw; process-creation arguments and PID translations remain private.
 Follow observed clone/fork/vfork descendants including threads, through final task exits.
 No container devices, capabilities, namespaces or security settings change for tracing.
 Keep the observer alive through granite.cleanup; then require its successful exit and
