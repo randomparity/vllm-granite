@@ -1,0 +1,127 @@
+{
+  "add_generation_prompt": true,
+  "fixtures": {
+    "F-context": {
+      "input_tokens": 3840,
+      "sha256": {
+        "plain": "9f8f3bd2b06a0972ec9e8c173f854d23fb955beebdc239dbf01dae2776d90cfc",
+        "stream": "b045931a334b2e71a2a2d806fce652dc757824197bdef9f7e65ca3e29a8593b8"
+      }
+    },
+    "F-long": {
+      "input_tokens": 3838,
+      "repetitions": 637,
+      "sha256": {
+        "plain": "7cf3cb1b2613b0185ad20585819f00cccc05f421112d865a1537cc227b47ed55",
+        "stream": "0f8b72aa5d4980910005382bd3cb58dfda9ce644e4c50d021b3788b2c229bfb2"
+      }
+    },
+    "F-over": {
+      "input_tokens": 4097,
+      "sha256": {
+        "plain": "0bcf7486b14d4a01eeae4e412a7ba49b40249e2f64139ddd165adc6f62d90ad2",
+        "stream": "6d8a614baba47fa4f6d8d58bf6f35e9031a3363f32c72446e37851f209d1332c"
+      }
+    },
+    "F-short": {
+      "input_tokens": 21,
+      "sha256": {
+        "plain": "487d5e7b67728494a1fac8a37250afefdfa7863c798a1b89dd372921ada9e4bf",
+        "stream": "890a54469d93c56d60762788a9ce826bacc640484ca03760ffd427b7fdb271cf"
+      }
+    }
+  },
+  "image": "docker.io/vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+  "invalid_sha256": {
+    "empty": "2ef164ddd35e3ae7670d037dedafa69dbd7c4c0546e9cd68399453c654b3ce0d",
+    "malformed": "021fb596db81e6d02bf3d2586ee3981fe519f275c0ac9ca76bbcf2ebb4097d96",
+    "missing": "b0363501a93a3b5889ceef65001f51cfcadecb477c27d47fea4221826d393fa5",
+    "model": "9e3e3712502c66743178bf66dd6fa827dbbf1b8e3ccfce046cdeb669cf03f45c",
+    "zero": "2a35eca7e83ed864891195dc431e9ebfa323b3bd9060d4c414bfbb42defc1dc3"
+  },
+  "model": "ibm-granite/granite-4.2-8b",
+  "order": [
+    [
+      "F-short",
+      false
+    ],
+    [
+      "F-long",
+      false
+    ],
+    [
+      "F-short",
+      true
+    ],
+    [
+      "F-long",
+      true
+    ],
+    [
+      "F-short",
+      false
+    ],
+    [
+      "F-long",
+      false
+    ],
+    [
+      "F-short",
+      true
+    ],
+    [
+      "F-long",
+      true
+    ],
+    [
+      "F-short",
+      false
+    ],
+    [
+      "F-long",
+      false
+    ],
+    [
+      "F-short",
+      true
+    ],
+    [
+      "F-long",
+      true
+    ],
+    [
+      "F-short",
+      false
+    ],
+    [
+      "F-long",
+      false
+    ],
+    [
+      "F-short",
+      true
+    ],
+    [
+      "F-long",
+      true
+    ],
+    [
+      "F-short",
+      false
+    ],
+    [
+      "F-long",
+      false
+    ],
+    [
+      "F-short",
+      true
+    ],
+    [
+      "F-long",
+      true
+    ]
+  ],
+  "revision": "a7042144125ce5ae64f89610e8289647fc000b9a",
+  "template_sha256": "f0ba43f79b3cabca5e5a7584c77aec92f49feae45cdf7779c87d9fc54cd90258"
+}

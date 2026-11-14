@@ -1,0 +1,83 @@
+{
+  "cleanups": [],
+  "cold_definition": "empty project compilation cache; warm acquired weights/OS cache",
+  "commit": "3ec2f62e11985702151bfd75e26b47d4af72daab",
+  "configuration": {
+    "backend": "FLASH_ATTN",
+    "cpus": 8,
+    "dtype": "bfloat16",
+    "flash_attn_version": 2,
+    "gpu_utilization": 0.8,
+    "kv_cache_dtype": "auto",
+    "max_model_len": 4096,
+    "max_num_batched_tokens": 4096,
+    "max_num_seqs": 2,
+    "pids": 1024,
+    "shared_memory_bytes": 4294967296,
+    "vllm_version": "0.32.0"
+  },
+  "default_profile_sha256": "2598b3b98e6970f37f917e210202fa8976aefcd99abf8955803a6e35bba17eb4",
+  "elapsed_s": 20.503853594884276,
+  "failure_class": "RuntimeError",
+  "fixture_manifest": {
+    "fixtures": {},
+    "invalid_sha256": {}
+  },
+  "gpu_alias": "GPU-A",
+  "limits": {
+    "concurrency": 2,
+    "context_tokens": 4096,
+    "gpu_bytes": 42949672960,
+    "memory_bytes": 34359738368,
+    "request_s": 120,
+    "startup_s": 600,
+    "stop_s": 30,
+    "trial_s": 3600
+  },
+  "profile": "runtime-default",
+  "requests": [],
+  "resource_peaks": {
+    "gpu_sample_bytes": 336592896.0,
+    "memory_current_bytes": 12091392,
+    "memory_peak_bytes": 33996800
+  },
+  "scenarios": {
+    "W-cancel": {
+      "status": "not-run"
+    },
+    "W-chat": {
+      "status": "not-run"
+    },
+    "W-context": {
+      "status": "not-run"
+    },
+    "W-invalid": {
+      "status": "not-run"
+    },
+    "W-resource": {
+      "allocations": 0,
+      "available_ram_gib": 47,
+      "cpus": 7,
+      "input_kind": "synthetic",
+      "runtime_recovery": "unexercised",
+      "status": "passed"
+    },
+    "W-start": {
+      "status": "not-run"
+    },
+    "W-stop": {
+      "status": "not-run"
+    }
+  },
+  "startups": [],
+  "status": "failed",
+  "summary": [],
+  "throughput_definition": "class output tokens / first-start to last-end window",
+  "versions": {
+    "driver": "615.71.09",
+    "kernel": "7.2.9-200.fc44.x86_64",
+    "podman": "5.8.7",
+    "runtime": "crun-1.28-1.fc44.x86_64",
+    "toolkit": "NVIDIA Container Toolkit CLI version 1.19.1\ncommit: 09ceee5dde66ba9ce25c7cc69b1ebd5e6e3266fa"
+  }
+}

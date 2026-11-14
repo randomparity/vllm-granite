@@ -232,10 +232,11 @@ class RuntimeCases(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
             (state / 'logs').mkdir()
+            clock = iter([100])
             with patch.object(g, 'run', return_value=''), patch.object(g, 'cleanup'), \
                  patch.object(g, 'reachable', return_value=False), \
                  patch.object(g, 'observe', return_value={}) as observed, \
-                 patch.object(g.time, 'monotonic', side_effect=[100, 131]):
+                 patch.object(g.time, 'monotonic', side_effect=lambda: next(clock, 131)):
                 with self.assertRaisesRegex(RuntimeError, 'readiness deadline'):
                     g.launch(state, 'GPU-test', None, True)
                 self.assertEqual(observed.call_args.args[-1], 130)
@@ -299,3 +300,60 @@ class RuntimeCases(unittest.TestCase):
         self.assertIn('127.0.0.1:8000:8000', args)
         self.assertFalse(any('unconfined' in x or 'privileged' in x or 'label=disable' in x
                              for x in args))
+
+class ServingContractCases(unittest.TestCase):
+    def test_pinned_server_uses_private_logging_and_bounded_drain(self):
+        captured = []
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'logs').mkdir()
+            def command(*args, **kwargs):
+                if args[1] == 'create':
+                    captured.extend(args)
+                    raise RuntimeError('captured serving command')
+                return ''
+            with patch.object(g, 'exists', return_value=False), patch.object(g, 'run', command), \
+                 patch.object(g, 'cleanup'), patch.object(g, 'reachable', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'captured serving command'):
+                    g.launch(state, 'GPU-test', None, False)
+        self.assertIn('--no-enable-log-requests', captured)
+        self.assertNotIn('--disable-log-requests', captured)
+        self.assertNotIn('--enable-log-requests', captured)
+        drain = int(captured[captured.index('--shutdown-timeout') + 1])
+        self.assertEqual(drain, 20)
+        self.assertLess(drain, int(next(x for x in captured
+                                       if x.startswith('--stop-timeout=')).split('=')[1]))
+
+    def test_exited_server_is_reported_before_removed_cgroup_is_read(self):
+        state = {'Running': False, 'OOMKilled': False, 'ExitCode': 2}
+        observation = {'GraniteProof': {'cgroup': '/removed'}}
+        with patch.object(g, 'run', return_value=g.json.dumps([{'State': state}])), \
+             patch.object(g, 'gpu_state', return_value=[0, 0, 0]), \
+             patch.object(Path, 'read_text', side_effect=FileNotFoundError('removed cgroup')):
+            budget = SimpleNamespace(check=lambda **kwargs: None)
+            with self.assertRaisesRegex(RuntimeError, 'server exited.*2'):
+                g.active('owned', observation, 'GPU-test', budget, None, g.time.monotonic()+2)
+        self.assertEqual(observation['GraniteExitState']['ExitCode'], 2)
+
+class StartupEvidenceCases(unittest.TestCase):
+    def test_exit_before_readiness_persists_updated_observation_and_cleans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'logs').mkdir()
+            exited = {'Running': False, 'OOMKilled': False, 'ExitCode': 2}
+            def command(*args, **kwargs):
+                if args[1] == 'inspect':
+                    return g.json.dumps([{'State': exited}])
+                return ''
+            def observed(name, *args):
+                return {'Name': name, 'GraniteProof': {'cgroup': '/removed'}}
+            budget = SimpleNamespace(check=lambda **kwargs: None)
+            with patch.object(g, 'exists', return_value=False), patch.object(g, 'run', command), \
+                 patch.object(g, 'observe', side_effect=observed), \
+                 patch.object(g, 'cleanup') as cleanup, \
+                 patch.object(g, 'reachable', return_value=False):
+                with self.assertRaisesRegex(RuntimeError, 'server exited.*2'):
+                    g.launch(state, 'GPU-test', budget, False)
+            retained = g.json.loads((state / 'logs' / 'inspect.json').read_text())
+            self.assertEqual(retained['GraniteExitState']['ExitCode'], 2)
+            cleanup.assert_called_once()

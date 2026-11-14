@@ -248,3 +248,9 @@ Full inference, fit, cold/warm timing, throughput and workload outputs remain un
 
 The first pinned-image check exposed unavailable rootless `cpuset` delegation. The launcher uses
 the supported eight-CPU time quota and verifies `cpu.max`; it does not require core affinity.
+
+
+The first #5 serving attempt exposed an unsupported legacy request-logging flag. The launcher
+now uses vLLM0.32's `--no-enable-log-requests` and reports startup exit state before reading
+removed cgroup files. See the [retained baseline attempts](baseline.md); neither attempt
+established inference or measured fit, and the repaired serving path still needs live proof.

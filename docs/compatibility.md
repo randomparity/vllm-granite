@@ -122,7 +122,8 @@ the complete baseline/custom comparison. This protocol fixes measurement and jud
    inconsistent cache classes or conflicting GPU use make the comparison inconclusive; revise
    and predeclare a new protocol before rerunning, retaining the original failure and rationale.
 
-No measured inference or performance results exist in this record. #4 owns acquisition,
+Measured default-profile baseline results and retained failures are in [baseline](baseline.md).
+#4 owns acquisition,
 provisioning and rootless/CDI/SELinux feasibility; #5 owns measured fit; #6–9 own tracing and
 policy/enforcement; #10–11 own complete regression and operator reproduction. Any change to
 pins, kernel, driver, runtime, toolkit, backend, resource envelope or workload requires affected
