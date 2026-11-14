@@ -274,7 +274,7 @@ class AllocationResponseCases(unittest.TestCase):
                                   ('No space left on device', 'disk-allocation'),
                                   ('unrelated server error', None)):
             body = json.dumps({'error': {'message': message, 'type': 'InternalServerError'}}).encode()
-            response = SimpleNamespace(status=500, read=lambda size: body)
+            response = SimpleNamespace(status=500, length=0, read=lambda size: body)
             client = b.Client(b.time.monotonic() + 2)
             try:
                 with patch.object(client, 'open', return_value=response):
@@ -425,3 +425,35 @@ class HeldStreamSafetyCases(unittest.TestCase):
                     trial.batch([('F-long', True, False, None)], 'warm', hold=True)
             self.assertEqual(result['failed_requests'][0]['outcome'], 'failed')
             self.assertNotIn(secret, json.dumps(b.public_result(result, fixtures)))
+
+class FramingCases(unittest.TestCase):
+    def test_complete_json_or_sse_with_short_declared_body_is_rejected(self):
+        import socket
+        import threading
+        completion = {'model': 'granite', 'choices': [{'index': 0,
+            'message': {'content': 'ready'}, 'finish_reason': 'stop'}],
+            'usage': {'prompt_tokens': 20, 'completion_tokens': 2, 'total_tokens': 22}}
+        for stream, body in ((False, json.dumps(completion).encode()),
+                             (True, ProtocolCases().stream())):
+            left, right = socket.socketpair()
+            def serve():
+                with right:
+                    request = b''
+                    while b'\r\n\r\n' not in request:
+                        request += right.recv(4096)
+                    header = (f'HTTP/1.1 200 OK\r\nContent-Length: {len(body)+100}\r\n'
+                              'Content-Type: text/event-stream\r\nConnection: close\r\n\r\n')
+                    right.sendall(header.encode() + body)
+            server = threading.Thread(target=serve)
+            server.start()
+            client = b.Client(b.time.monotonic() + 2)
+            def connect(connection):
+                connection.sock = left
+            try:
+                with patch.object(b.http.client.HTTPConnection, 'connect', connect):
+                    with self.assertRaisesRegex(RuntimeError, 'truncated'):
+                        client.chat(b'{}', stream=stream)
+            finally:
+                client.close()
+                server.join(timeout=2)
+            self.assertFalse(server.is_alive())

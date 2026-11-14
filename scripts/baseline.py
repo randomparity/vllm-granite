@@ -240,6 +240,10 @@ class Client:
         if self.sock and self.sock.fileno() >= 0:
             self.sock.settimeout(timeout)
 
+    def completed(self, response):
+        self.check()
+        g.require(response.length in (None, 0), 'response: truncated HTTP body')
+
     def close(self):
         self.timer.cancel()
         self.closed.set()
@@ -267,12 +271,12 @@ class Client:
         if reject:
             g.require(400 <= response.status < 500, 'request: expected client rejection')
             data = response.read(65537)
-            self.check()
+            self.completed(response)
             g.require(len(data) <= 65536, 'request: error body exceeds bound')
             return {'status': response.status, 'error_class': 'expected-client-error'}
         if response.status != 200:
             body = response.read(65537)
-            self.check()
+            self.completed(response)
             g.require(len(body) <= 65536, 'response: error body exceeds bound')
             raise ResponseFailure(response.status, body)
         if stream:
@@ -281,11 +285,14 @@ class Client:
             value = parse_stream(response, self.check, first_only=hold)
         else:
             raw = response.read(2 * 1024 * 1024 + 1)
-            self.check()
+            self.completed(response)
             g.require(len(raw) <= 2 * 1024 * 1024, 'response: body bound exceeded')
             value = parse_completion(json.loads(raw))
         end = time.monotonic()
-        self.check()
+        if not hold:
+            self.completed(response)
+        else:
+            self.check()
         first = value.pop('first_text_at', None)
         return dict(value, status=response.status, latency_s=end - start,
                     ttft_s=first - start if first else None,
@@ -411,7 +418,7 @@ class Trial:
             response = client.open('/metrics')
             g.require(response.status == 200, 'metrics: endpoint unavailable')
             raw = response.read(2 * 1024 * 1024 + 1)
-            client.check()
+            client.completed(response)
             g.require(len(raw) <= 2 * 1024 * 1024, 'metrics: body bound exceeded')
             return request_gauges(raw.decode())
         finally:
