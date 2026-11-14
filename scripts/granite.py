@@ -469,7 +469,8 @@ def active(name, observation, gpu, budget, baseline, deadline):
     require(events['oom_kill'] == '0', 'runtime: cgroup OOM; stop failed trial')
     return sample
 
-def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session_deadline=None):
+def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session_deadline=None,
+           capture=None):
     token = uuid.uuid4().hex
     name, network = 'granite-' + token, 'granite-net-' + token
     require(not exists(name) and not exists(network, True), 'launch: resource name exists; refuse')
@@ -478,6 +479,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
         (state / 'logs' / 'resources.json').write_text(json.dumps([name, network]))
         run('podman', 'network', 'create', '--internal', '--disable-dns', network)
         args = argv(state, gpu, name, network)
+        if capture:
+            args += capture.arguments()
         if diagnostic:
             args += ['--entrypoint=python3', IMAGE, '-c', DIAGNOSTIC_SERVER]
         else:
@@ -490,10 +493,15 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
                      '--generation-config', 'vllm', '--override-generation-config',
                      '{"max_new_tokens":256}', '--no-enable-log-requests',
                      '--disable-uvicorn-access-log', '--shutdown-timeout', str(SERVE_SHUTDOWN_SECONDS)]
-        run(*args)
+        created = run(*args)
+        if capture:
+            capture.container = created
         start = time.monotonic()
         deadline = min(start + (30 if diagnostic else 600), session_deadline or float('inf'))
-        run('podman', 'start', name, deadline=deadline)
+        start_args = capture.arguments(start=True) if capture else []
+        run('podman', 'start', *start_args, name, deadline=deadline)
+        if capture:
+            capture.check()
         observation = observe(name, gpu, deadline)
         remaining(deadline)
         (state / 'logs' / 'inspect.json').write_text(json.dumps(observation))
@@ -501,6 +509,8 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
         while time.monotonic() - start < 3600:
             active_deadline = deadline if not ready else min(
                 start + 3600, session_deadline or float('inf'))
+            if capture:
+                capture.check()
             active(name, observation, gpu, budget, baseline, active_deadline)
             if not ready:
                 remaining(deadline)
@@ -538,6 +548,12 @@ def launch(state, gpu, budget, diagnostic, baseline=None, workload=None, session
             (state / 'logs' / 'cleanup.json').write_text(json.dumps({
                 'name': name, 'status': 'passed' if clean else 'failed',
                 'elapsed_s': time.monotonic() - cleanup_start}))
+            if capture:
+                prior = sys.exc_info()[1] or original
+                try:
+                    capture.finish()
+                except Exception as error:
+                    raise RuntimeError(f'{prior or "run ended"}; {error}') from error
 
 def main():
     global ERROR_LOG
