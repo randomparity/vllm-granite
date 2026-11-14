@@ -191,17 +191,17 @@ def parse_stream(source, check, first_only=False):
         g.require(len(choices) == 1 and choices[0]['index'] == 0 and not finished,
                   'stream: duplicate/invalid completion')
         choice = choices[0]
+        finish = choice.get('finish_reason')
+        g.require(finish in (None, 'stop', 'length'), 'stream: invalid finish reason')
         content = choice['delta'].get('content')
         g.require(content is None or isinstance(content, str), 'stream: invalid text chunk')
         if content:
             text = text or bool(content.strip())
             first = first or time.monotonic()
             if first_only:
-                return {'first_text_at': first, 'finish_reason': choice.get('finish_reason')}
-        if choice.get('finish_reason') is not None:
-            g.require(choice['finish_reason'] in ('stop', 'length'),
-                      'stream: invalid finish reason')
-            finished = choice['finish_reason']
+                return {'first_text_at': first, 'finish_reason': finish}
+        if finish is not None:
+            finished = finish
 
 
 class ResponseFailure(RuntimeError):

@@ -401,3 +401,27 @@ class FailedBatchEvidenceCases(unittest.TestCase):
         self.assertEqual(next(row for row in records if row['outcome'] == 'failed')['http_status'],500)
         self.assertEqual(b.summarize(result['requests']), [])
         self.assertNotIn(secret, json.dumps(b.public_result(result, fixtures)))
+
+class HeldStreamSafetyCases(unittest.TestCase):
+    def test_invalid_held_finish_reason_cannot_reach_failed_batch_export(self):
+        secret = 'private-output-or-machine-identifier'
+        for reason in (secret, {'private': secret}):
+            data = event(id='one', model='granite', choices=[{
+                'index': 0, 'delta': {'content': 'ready'}, 'finish_reason': reason}])
+            class Client:
+                def __init__(self, deadline):
+                    self.deadline = deadline
+                def chat(self, *args):
+                    return b.parse_stream(io.BytesIO(data), lambda: None, first_only=True)
+                def close(self):
+                    pass
+            fixtures = {'fixtures': {'F-long': {'bodies': {'stream': '{}'},
+                        'sha256': {'stream': 'a'*64}}}}
+            result = {'requests': []}
+            trial = b.Trial(None, None, None, None, fixtures, result, b.time.monotonic() + 2)
+            with patch.object(b, 'Client', Client), \
+                 patch.object(trial, 'sample', side_effect=RuntimeError('server stopped')):
+                with self.assertRaisesRegex(RuntimeError, 'server stopped'):
+                    trial.batch([('F-long', True, False, None)], 'warm', hold=True)
+            self.assertEqual(result['failed_requests'][0]['outcome'], 'failed')
+            self.assertNotIn(secret, json.dumps(b.public_result(result, fixtures)))
