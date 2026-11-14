@@ -66,9 +66,29 @@ before the fix and passed afterward. Repair commit:
 `025f60778d2bd3c79e0c1b128bbbfbe74dba340b`.
 The [fixture manifest](evidence/baseline-fixtures.json) freezes hashes/counts/settings;
 the corresponding exact private bytes are retained. This verifies fixture construction,
-not server admission or GPU inference. The operator subsequently approved one additional bounded measurement trial; its execution
-is pending.
+not server admission or GPU inference. The operator subsequently approved one additional bounded measurement trial; its failed
+result is recorded below.
 
-The first inference baseline remains **incomplete**. No fit, startup, latency, throughput,
-cancellation or active-stop success is claimed from this attempt. The additional approval covers exactly one further baseline-only attempt; pins, resource
-limits and security settings remain unchanged. A failure remains a failed trial.
+## Second actual result: rejected serving argument
+
+The additional authorized attempt at executable commit
+`3ac96203f784adc176bc6d8990d9e6864a9dbe18` failed after **42.760 seconds**. Fixture
+materialization succeeded, but vLLM exited2 before readiness with
+`vllm: error: unrecognized arguments: --disable-log-requests`.
+The observer then encountered the already removed cgroup; the retained container log
+established the original CLI cause. No inference or timed request ran.
+
+Cold-session cleanup was independently verified in **0.379 seconds**: the original cgroup,
+project GPU processes and endpoint disappeared, and device memory returned to its initial
+sampled baseline. See the [sanitized second result](evidence/baseline-second-attempt.json).
+The request-logging option is now the supported `--no-enable-log-requests`; the
+[versioned vLLM0.32 CLI reference](https://docs.vllm.ai/en/v0.32.0/cli/serve/)
+also records request logging's default as false. Repair commit
+`3b82ee2d8a88cb68a29cdfacd688ffe74acfc67c` also records server exit state before reading
+removed cgroup files, preserving the actionable startup cause. Both behaviors have focused
+regressions; this repair has not received another live inference run.
+
+The inference baseline remains **incomplete**. No fit, startup, latency, throughput,
+cancellation or active-stop success is claimed from either attempt. Both authorized
+measurement attempts are consumed; another requires an explicit operator decision.
+Pins, resource limits and security settings remain unchanged. A failure stays a failed trial.
